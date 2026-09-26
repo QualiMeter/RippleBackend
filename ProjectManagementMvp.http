@@ -1,0 +1,23 @@
+@baseUrl = http://localhost:5080
+
+### 1. Seeded users
+GET {{baseUrl}}/api/v1/users
+
+### 2. Projects
+GET {{baseUrl}}/api/v1/projects
+
+### 3. OpenAPI
+GET {{baseUrl}}/openapi/v1.json
+
+### 4. Scalar
+GET {{baseUrl}}/scalar
+
+# For the rest, copy projectId/taskId from the previous responses.
+# Example:
+# GET {{baseUrl}}/api/v1/projects/{projectId}
+# GET {{baseUrl}}/api/v1/projects/{projectId}/tasks
+# GET {{baseUrl}}/api/v1/projects/{projectId}/dependencies
+# POST {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}/shift-preview
+# POST {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}/shift-confirm
+# Content-Type: application/json
+# { "confirmProjectEndDate": false }
