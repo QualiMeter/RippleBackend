@@ -1,5 +1,6 @@
-using ProjectManagement.Api.Domain;
 using Xunit;
+
+using TaskStatus = ProjectManagement.Api.Domain.TaskStatus;
 
 namespace ProjectManagement.Api.Tests;
 
