@@ -50,8 +50,8 @@ public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor
 
 		var dependency = new DependencyDto(link.PredecessorTaskId, link.SuccessorTaskId, projectId, predecessor.Name, successor.Name);
 		await realtime.PublishAsync(projectId, "task_dependency", "created", link.SuccessorTaskId, dependency, ct);
-		var analysis = successor.StartDate < predecessor.EndDate
-			? [new AnalysisMessageDto(AnalysisSeverity.Warning, predecessor.Id, predecessor.Name, [successor.Id], [successor.Name], $"Последующая задача начинается {successor.StartDate:yyyy-MM-dd}, раньше окончания предшественника {predecessor.EndDate:yyyy-MM-dd}.", [new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)])]
+		var analysis = DependencyScheduleRules.HasDateConflict(predecessor.EndDate, successor.StartDate)
+			? [new AnalysisMessageDto(AnalysisSeverity.Warning, predecessor.Id, predecessor.Name, [successor.Id], [successor.Name], $"Последующая задача начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {predecessor.EndDate:yyyy-MM-dd}.", [new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)])]
 			: Array.Empty<AnalysisMessageDto>();
 		return Created($"/api/v1/projects/{projectId}/dependencies/{link.PredecessorTaskId}/{link.SuccessorTaskId}", new DependencyMutationResponse(dependency, analysis));
 	}

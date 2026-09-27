@@ -36,7 +36,9 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph, 
 			var task = taskMap[id];
 			var predecessorIds = predecessorMap.TryGetValue(id, out var preds) ? preds : [];
 			var predecessorEnds = predecessorIds.Select(x => proposedEnd[x]).ToList();
-			var requiredStart = predecessorEnds.Count == 0 ? proposedStart[id] : predecessorEnds.Max();
+			var requiredStart = predecessorEnds.Count == 0
+				? proposedStart[id]
+				: DependencyScheduleRules.RequiredSuccessorStart(predecessorEnds.Max());
 
 			if (requiredStart <= proposedStart[id])
 			{

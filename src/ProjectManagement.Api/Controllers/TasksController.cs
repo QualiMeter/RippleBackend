@@ -169,10 +169,10 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 
 		foreach (var successor in successors)
 		{
-			if (successor.StartDate < task.EndDate)
+			if (DependencyScheduleRules.HasDateConflict(task.EndDate, successor.StartDate))
 			{
 				messages.Add(new AnalysisMessageDto(AnalysisSeverity.Warning, task.Id, task.Name, [successor.Id], [successor.Name],
-					$"Последующая задача начинается {successor.StartDate:yyyy-MM-dd}, раньше окончания предшественника {task.EndDate:yyyy-MM-dd}.",
+					$"Последующая задача начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {task.EndDate:yyyy-MM-dd}.",
 					[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)]));
 			}
 		}

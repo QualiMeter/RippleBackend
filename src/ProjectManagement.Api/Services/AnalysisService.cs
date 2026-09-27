@@ -50,7 +50,7 @@ public sealed class AnalysisService(AppDbContext db)
 			var successors = await db.Tasks.Where(x => successorIds.Contains(x.Id)).AsNoTracking().ToListAsync(ct);
 			foreach (var successor in successors)
 			{
-				if (successor.StartDate < after.EndDate)
+				if (DependencyScheduleRules.HasDateConflict(after.EndDate, successor.StartDate))
 				{
 					result.Add(new AnalysisMessageDto(
 						AnalysisSeverity.Warning,
@@ -58,7 +58,7 @@ public sealed class AnalysisService(AppDbContext db)
 						after.Name,
 						[successor.Id],
 						[successor.Name],
-						$"Последующая задача {successor.Name} начинается {successor.StartDate:yyyy-MM-dd}, раньше окончания предшественника {after.EndDate:yyyy-MM-dd}.",
+						$"Последующая задача {successor.Name} начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {after.EndDate:yyyy-MM-dd}.",
 						[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)]));
 				}
 			}
