@@ -17,9 +17,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 		{
 			b.ToTable("users");
 			b.HasKey(x => x.Id);
-			b.Property(x => x.Name).HasMaxLength(200).IsRequired();
-			b.Property(x => x.Email).HasMaxLength(320);
-			b.Property(x => x.CreatedAt).IsRequired();
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.Name).HasColumnName("Name").HasMaxLength(200).IsRequired();
+			b.Property(x => x.Email).HasColumnName("Email").HasMaxLength(320);
+			b.Property(x => x.CreatedAt).HasColumnName("CreatedAt").IsRequired();
 			b.HasIndex(x => x.Email).IsUnique();
 		});
 
@@ -27,7 +28,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 		{
 			b.ToTable("projects", table => table.HasCheckConstraint("ck_projects_dates", "start_date <= end_date"));
 			b.HasKey(x => x.Id);
-			b.Property(x => x.Name).HasMaxLength(250).IsRequired();
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.Name).HasColumnName("Name").HasMaxLength(250).IsRequired();
 			b.Property(x => x.StartDate).HasColumnName("start_date").IsRequired();
 			b.Property(x => x.EndDate).HasColumnName("end_date").IsRequired();
 			b.Property(x => x.CreatorId).HasColumnName("creator_id").IsRequired();
@@ -39,8 +41,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 		{
 			b.ToTable("employees");
 			b.HasKey(x => x.Id);
-			b.Property(x => x.Id).HasColumnName("id");
-			b.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.Name).HasColumnName("Name").HasMaxLength(200).IsRequired();
 			b.Property(x => x.Phone).HasColumnName("phone").HasMaxLength(40);
 			b.Property(x => x.Email).HasColumnName("email").HasMaxLength(254);
 			b.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
@@ -52,12 +54,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 		{
 			b.ToTable("tasks", table => table.HasCheckConstraint("ck_tasks_dates", "start_date <= end_date"));
 			b.HasKey(x => x.Id);
-			b.Property(x => x.Name).HasMaxLength(300).IsRequired();
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.Name).HasColumnName("Name").HasMaxLength(300).IsRequired();
 			b.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
 			b.Property(x => x.AssigneeId).HasColumnName("assignee_id").IsRequired();
 			b.Property(x => x.StartDate).HasColumnName("start_date").IsRequired();
 			b.Property(x => x.EndDate).HasColumnName("end_date").IsRequired();
-			b.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+			b.Property(x => x.Status).HasColumnName("Status").HasConversion<string>().HasMaxLength(32).IsRequired();
 			b.HasOne(x => x.Project).WithMany(x => x.Tasks).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
 			b.HasOne(x => x.Assignee).WithMany(x => x.Tasks).HasForeignKey(x => x.AssigneeId).OnDelete(DeleteBehavior.Restrict);
 			b.HasIndex(x => x.ProjectId);
