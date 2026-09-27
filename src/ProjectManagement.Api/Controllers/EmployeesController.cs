@@ -15,7 +15,7 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 	public async Task<ActionResult<IReadOnlyList<EmployeeDto>>> GetAll(Guid projectId, CancellationToken ct)
 	{
 		await EnsureProjectAsync(projectId, ct);
-		var result = await db.Employees.AsNoTracking().Where(x => x.ProjectId == projectId).OrderBy(x => x.Name).Select(x => new EmployeeDto(x.Id, x.ProjectId, x.Name, x.Tasks.Count)).ToListAsync(ct);
+		var result = await db.Employees.AsNoTracking().Where(x => x.ProjectId == projectId).OrderBy(x => x.Name).Select(x => new EmployeeDto(x.Id, x.ProjectId, x.Name, x.Phone, x.Email, x.Tasks.Count)).ToListAsync(ct);
 		return Ok(result);
 	}
 
@@ -24,10 +24,17 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 	{
 		await EnsureProjectAsync(projectId, ct);
 		if (string.IsNullOrWhiteSpace(request.Name)) return ValidationProblem("Employee name is required.");
-		var employee = new Employee { Id = Guid.NewGuid(), ProjectId = projectId, Name = request.Name.Trim() };
+		var employee = new Employee
+		{
+			Id = Guid.NewGuid(),
+			ProjectId = projectId,
+			Name = request.Name.Trim(),
+			Phone = NormalizeOptional(request.Phone),
+			Email = NormalizeOptional(request.Email)
+		};
 		db.Employees.Add(employee);
 		await db.SaveChangesAsync(ct);
-		return Created($"/api/v1/projects/{projectId}/employees/{employee.Id}", new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, 0));
+		return Created($"/api/v1/projects/{projectId}/employees/{employee.Id}", new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, 0));
 	}
 
 	[HttpGet("{employeeId:guid}")]
@@ -36,7 +43,7 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		await EnsureProjectAsync(projectId, ct);
 		var employee = await db.Employees.AsNoTracking().Include(x => x.Tasks).SingleOrDefaultAsync(x => x.Id == employeeId && x.ProjectId == projectId, ct);
 		if (employee is null) return NotFound();
-		return Ok(new EmployeeDetailsDto(employee.Id, employee.ProjectId, employee.Name, employee.Tasks.OrderBy(x => x.StartDate).Select(x => new AssignedTaskDto(x.Id, x.Name, x.StartDate, x.EndDate, x.Status.ToString())).ToList()));
+		return Ok(new EmployeeDetailsDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, employee.Tasks.OrderBy(x => x.StartDate).Select(x => new AssignedTaskDto(x.Id, x.Name, x.StartDate, x.EndDate, x.Status.ToString())).ToList()));
 	}
 
 	[HttpPut("{employeeId:guid}")]
@@ -47,9 +54,11 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		var employee = await db.Employees.SingleOrDefaultAsync(x => x.Id == employeeId && x.ProjectId == projectId, ct);
 		if (employee is null) return NotFound();
 		employee.Name = request.Name.Trim();
+		employee.Phone = NormalizeOptional(request.Phone);
+		employee.Email = NormalizeOptional(request.Email);
 		await db.SaveChangesAsync(ct);
 		var count = await db.Tasks.CountAsync(x => x.AssigneeId == employeeId, ct);
-		return Ok(new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, count));
+		return Ok(new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, count));
 	}
 
 	[HttpDelete("{employeeId:guid}")]
@@ -65,6 +74,8 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 
 		return deleted == 0 ? NotFound() : NoContent();
 	}
+
+	private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
 	private async Task EnsureProjectAsync(Guid projectId, CancellationToken ct)
 	{

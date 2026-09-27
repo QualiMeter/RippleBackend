@@ -26,6 +26,8 @@ public sealed class Employee
 	public Guid Id { get; set; }
 	public Guid ProjectId { get; set; }
 	public string Name { get; set; } = null!;
+	public string? Phone { get; set; }
+	public string? Email { get; set; }
 	public Project Project { get; set; } = null!;
 	public ICollection<ProjectTask> Tasks { get; set; } = [];
 }

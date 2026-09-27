@@ -9,6 +9,9 @@ public static class DbInitializer
 	{
 		await db.Database.EnsureCreatedAsync(cancellationToken);
 
+		await db.Database.ExecuteSqlRawAsync("ALTER TABLE employees ADD COLUMN IF NOT EXISTS phone varchar(40)", cancellationToken);
+		await db.Database.ExecuteSqlRawAsync("ALTER TABLE employees ADD COLUMN IF NOT EXISTS email varchar(254)", cancellationToken);
+
 		var demoUser = await db.Users.SingleOrDefaultAsync(x => x.Email == "demo.manager@example.local", cancellationToken);
 		if (demoUser is null)
 		{
@@ -38,10 +41,10 @@ public static class DbInitializer
 			CreatorId = demoUser.Id
 		};
 
-		var ana = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Анна Петрова", Project = project };
-		var boris = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Борис Смирнов", Project = project };
-		var nina = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Нина Волкова", Project = project };
-		var oleg = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Олег Иванов", Project = project };
+		var ana = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Анна Петрова", Phone = "+7 900 000-00-01", Email = "anna@example.local", Project = project };
+		var boris = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Борис Смирнов", Phone = "+7 900 000-00-02", Email = "boris@example.local", Project = project };
+		var nina = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Нина Волкова", Phone = "+7 900 000-00-03", Email = "nina@example.local", Project = project };
+		var oleg = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = "Олег Иванов", Phone = "+7 900 000-00-04", Email = "oleg@example.local", Project = project };
 
 		project.Employees.Add(ana);
 		project.Employees.Add(boris);
