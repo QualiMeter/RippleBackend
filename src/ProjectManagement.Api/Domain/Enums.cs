@@ -1,16 +1,16 @@
 namespace ProjectManagement.Api.Domain;
 
-public enum TaskStatus
+public enum ProjectTaskStatus
 {
-    NotStarted = 0,
-    InProgress = 1,
-    Completed = 2,
-    Delayed = 3
+	NotStarted = 0,
+	InProgress = 1,
+	Completed = 2,
+	Delayed = 3
 }
 
 public enum AnalysisSeverity
 {
-    Info = 0,
-    Warning = 1,
-    Error = 2
+	Info = 0,
+	Warning = 1,
+	Error = 2
 }
