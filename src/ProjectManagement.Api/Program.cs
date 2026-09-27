@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.IO.Compression;
 using System.Text.Encodings.Web;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
 using ProjectManagement.Api.Data;
 using ProjectManagement.Api.Middleware;
 using ProjectManagement.Api.Services;
@@ -12,6 +12,24 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddCors(options =>
+{
+	var configuredOrigins = builder.Configuration["CORS_ORIGINS"]
+		?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+		?? [];
+
+	var origins = configuredOrigins.Length > 0
+		? configuredOrigins
+		: ["https://ripple-azure-one.vercel.app"];
+
+	options.AddPolicy("Frontend", policy =>
+	{
+		policy.WithOrigins(origins)
+			.AllowAnyHeader()
+			.AllowAnyMethod();
+	});
+});
 builder.Services.AddControllers()
 	.AddJsonOptions(options =>
 	{
@@ -31,21 +49,7 @@ builder.Services.AddResponseCompression(options =>
 builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 
-builder.Services.AddOpenApi(options =>
-{
-	options.AddDocumentTransformer((document, _, _) =>
-	{
-		document.Servers =
-		[
-			new OpenApiServer
-			{
-				Url = "https://localhost:7080"
-			}
-		];
-
-		return Task.CompletedTask;
-	});
-});
+builder.Services.AddOpenApi();
 
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
 	?? Environment.GetEnvironmentVariable("ConnectionStrings__Postgres")
@@ -61,8 +65,13 @@ builder.Services.AddScoped<ShiftService>();
 
 var app = builder.Build();
 
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+	ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 app.UseResponseCompression();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseCors("Frontend");
 app.MapOpenApi();
 app.MapScalarApiReference("/scalar", options => options.WithTitle("Project Management MVP API").WithOpenApiRoutePattern("/openapi/{documentName}.json"));
 app.MapControllers();
