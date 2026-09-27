@@ -39,9 +39,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 		{
 			b.ToTable("employees");
 			b.HasKey(x => x.Id);
-			b.Property(x => x.Name).HasMaxLength(200).IsRequired();
-			b.Property(x => x.Phone).HasMaxLength(40);
-			b.Property(x => x.Email).HasMaxLength(254);
+			b.Property(x => x.Id).HasColumnName("id");
+			b.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+			b.Property(x => x.Phone).HasColumnName("phone").HasMaxLength(40);
+			b.Property(x => x.Email).HasColumnName("email").HasMaxLength(254);
 			b.Property(x => x.ProjectId).HasColumnName("project_id").IsRequired();
 			b.HasOne(x => x.Project).WithMany(x => x.Employees).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
 			b.HasIndex(x => new { x.ProjectId, x.Name });
