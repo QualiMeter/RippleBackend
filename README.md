@@ -1,4 +1,4 @@
-# ProjectManagementMvp
+# Ripple
 
 MVP backend for the project-management case: projects, employees, tasks, task dependencies, impact analysis and a preview/confirmation flow for shifting downstream tasks.
 
