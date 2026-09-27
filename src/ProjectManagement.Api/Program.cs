@@ -68,12 +68,26 @@ builder.Services.AddScoped<AnalysisService>();
 builder.Services.AddScoped<DependencyGraphService>();
 builder.Services.AddScoped<ShiftService>();
 
+const string CorsPolicy = "Frontend";
+
+builder.Services.AddCors(options =>
+{
+	options.AddPolicy(CorsPolicy, policy =>
+	{
+		policy
+			.WithOrigins("https://ripple-azure-one.vercel.app")
+			.AllowAnyHeader()
+			.AllowAnyMethod();
+	});
+});
+
 var app = builder.Build();
 
 app.UseForwardedHeaders();
 
-app.UseResponseCompression();
+app.UseCors(CorsPolicy);
 
+app.UseResponseCompression();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.MapOpenApi();
