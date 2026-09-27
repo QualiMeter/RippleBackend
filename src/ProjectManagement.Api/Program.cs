@@ -9,7 +9,6 @@ using ProjectManagement.Api.Middleware;
 using ProjectManagement.Api.Hubs;
 using ProjectManagement.Api.Services;
 using Scalar.AspNetCore;
-using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,44 +60,29 @@ builder.Services.AddOpenApi(options =>
 Project Management MVP REST API.
 
 Realtime SignalR contract:
-- Hub: /hubs/projects
-- Client methods: JoinProject(projectId), LeaveProject(projectId)
-- Server event: projectChanged
-- Event fields: eventId, projectId, entity, action, entityId, data, occurredAt
-- Entities: project, task, employee, dependency, history
-- Actions: created, updated, deleted, restored, undone
-- JoinProject subscribes the connection to project:{projectId:N}.
-- REST remains the source of truth; SignalR delivers realtime deltas.
+Hub: /hubs/projects
+Transport: SignalR
+
+Client methods:
+- JoinProject(projectId: uuid): subscribes the connection to project:{projectId:N}.
+- LeaveProject(projectId: uuid): removes the connection from project:{projectId:N}.
+
+Server event:
+- projectChanged
+
+projectChanged payload:
+{
+  eventId: uuid,
+  projectId: uuid,
+  entity: project | task | employee | dependency | history,
+  action: created | updated | deleted | restored | undone,
+  entityId: uuid | null,
+  data: object | null,
+  occurredAt: date-time
+}
+
+REST remains the source of truth. SignalR delivers realtime deltas so the frontend can update individual entities without reloading the whole project.
 """;
-
-		document.Extensions["x-signalr"] = new OpenApiObject
-		{
-			["hub"] = new OpenApiString("/hubs/projects"),
-			["transport"] = new OpenApiString("SignalR"),
-			["clientMethods"] = new OpenApiArray
-			{
-				new OpenApiString("JoinProject(projectId)"),
-				new OpenApiString("LeaveProject(projectId)")
-			},
-			["serverEvents"] = new OpenApiArray
-			{
-				new OpenApiObject
-				{
-					["name"] = new OpenApiString("projectChanged"),
-					["payload"] = new OpenApiObject
-					{
-						["eventId"] = new OpenApiString("uuid"),
-						["projectId"] = new OpenApiString("uuid"),
-						["entity"] = new OpenApiString("project | task | employee | dependency | history"),
-						["action"] = new OpenApiString("created | updated | deleted | restored | undone"),
-						["entityId"] = new OpenApiString("uuid | null"),
-						["data"] = new OpenApiString("object | null"),
-						["occurredAt"] = new OpenApiString("date-time")
-					}
-				}
-			}
-		};
-
 		return Task.CompletedTask;
 	});
 });
