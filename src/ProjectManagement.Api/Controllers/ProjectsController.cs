@@ -56,7 +56,7 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 		await db.SaveChangesAsync(ct);
 		var createdDetails = await BuildDetailsAsync(project.Id, ct);
 		await realtime.PublishAsync(project.Id, "project", "created", project.Id, createdDetails, ct);
-		return CreatedAtAction(nameof(Get),, new { id = project.Id }, await BuildDetailsAsync(project.Id, ct));
+		return CreatedAtAction(nameof(Get), new { id = project.Id }, await BuildDetailsAsync(project.Id, ct));
 	}
 
 	[HttpGet("{id:guid}")]
