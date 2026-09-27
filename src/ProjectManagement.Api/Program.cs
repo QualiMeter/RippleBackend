@@ -9,6 +9,7 @@ using ProjectManagement.Api.Middleware;
 using ProjectManagement.Api.Hubs;
 using ProjectManagement.Api.Services;
 using Scalar.AspNetCore;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,7 +53,55 @@ builder.Services.AddResponseCompression(options =>
 builder.Services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 builder.Services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+	options.AddDocumentTransformer((document, _, _) =>
+	{
+		document.Info.Description = """
+Project Management MVP REST API.
+
+Realtime SignalR contract:
+- Hub: /hubs/projects
+- Client methods: JoinProject(projectId), LeaveProject(projectId)
+- Server event: projectChanged
+- Event fields: eventId, projectId, entity, action, entityId, data, occurredAt
+- Entities: project, task, employee, dependency, history
+- Actions: created, updated, deleted, restored, undone
+- JoinProject subscribes the connection to project:{projectId:N}.
+- REST remains the source of truth; SignalR delivers realtime deltas.
+""";
+
+		document.Extensions["x-signalr"] = new OpenApiObject
+		{
+			["hub"] = new OpenApiString("/hubs/projects"),
+			["transport"] = new OpenApiString("SignalR"),
+			["clientMethods"] = new OpenApiArray
+			{
+				new OpenApiString("JoinProject(projectId)"),
+				new OpenApiString("LeaveProject(projectId)")
+			},
+			["serverEvents"] = new OpenApiArray
+			{
+				new OpenApiObject
+				{
+					["name"] = new OpenApiString("projectChanged"),
+					["payload"] = new OpenApiObject
+					{
+						["eventId"] = new OpenApiString("uuid"),
+						["projectId"] = new OpenApiString("uuid"),
+						["entity"] = new OpenApiString("project | task | employee | dependency | history"),
+						["action"] = new OpenApiString("created | updated | deleted | restored | undone"),
+						["entityId"] = new OpenApiString("uuid | null"),
+						["data"] = new OpenApiString("object | null"),
+						["occurredAt"] = new OpenApiString("date-time")
+					}
+				}
+			}
+		};
+
+		return Task.CompletedTask;
+	});
+});
 
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
 	?? Environment.GetEnvironmentVariable("ConnectionStrings__Postgres")
