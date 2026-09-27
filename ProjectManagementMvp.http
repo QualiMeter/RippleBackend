@@ -1,4 +1,4 @@
-@baseUrl = http://localhost:5080
+@baseUrl = https://localhost:7080
 
 ### 1. Seeded users
 GET {{baseUrl}}/api/v1/users
@@ -21,3 +21,15 @@ GET {{baseUrl}}/scalar
 # POST {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}/shift-confirm
 # Content-Type: application/json
 # { "confirmProjectEndDate": false }
+
+
+### 5. DELETE task
+# Without successors: deletes immediately.
+# With successors: first call returns 409 and lists affected tasks.
+# Then repeat with ?confirm=true.
+# DELETE {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}
+# DELETE {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}?confirm=true
+
+### 6. DELETE project
+# Physically deletes project and cascades employees/tasks/dependencies.
+# DELETE {{baseUrl}}/api/v1/projects/{projectId}

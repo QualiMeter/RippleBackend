@@ -3,7 +3,7 @@
     "ProjectManagement.Api": {
       "commandName": "Project",
       "launchBrowser": false,
-      "applicationUrl": "http://localhost:5080",
+      "applicationUrl": "https://localhost:7080",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }

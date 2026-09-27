@@ -8,6 +8,7 @@ MVP backend for the project-management case: projects, employees, tasks, task de
 - Entity Framework Core 10
 - PostgreSQL via Npgsql
 - Scalar API reference + OpenAPI
+- Brotli/Gzip response compression + compact UTF-8 JSON
 - xUnit tests for core dependency/shift logic
 
 The MVP intentionally has no registration/authentication flow. A seeded demo manager is used by default. You can override the current manager with the `X-User-Id` header.
@@ -39,9 +40,9 @@ dotnet restore
 dotnet run --project src/ProjectManagement.Api
 ```
 
-API: `http://localhost:5080`
-Scalar: `http://localhost:5080/scalar`
-OpenAPI JSON: `http://localhost:5080/openapi/v1.json`
+API: `https://localhost:7080`
+Scalar: `https://localhost:7080/scalar`
+OpenAPI JSON: `https://localhost:7080/openapi/v1.json`
 
 On startup the database schema is created with EF Core `EnsureCreated` and the demonstration data is seeded if it is missing.
 
@@ -67,6 +68,7 @@ GET    /api/v1/projects
 POST   /api/v1/projects
 GET    /api/v1/projects/{id}
 PUT    /api/v1/projects/{id}
+DELETE /api/v1/projects/{id}
 
 GET    /api/v1/projects/{projectId}/employees
 POST   /api/v1/projects/{projectId}/employees
@@ -101,6 +103,9 @@ POST   /api/v1/projects/{projectId}/tasks/{taskId}/shift-confirm
 - Analysis never changes task status automatically.
 - Shift preview is calculated without saving.
 - Shift confirmation recalculates the proposal on the server and then persists it.
+- DELETE endpoints physically delete entities; they do not convert them to the `Completed` task status.
+- Deleting a project cascades to its employees, tasks and task dependencies.
+- Deleting a task cascades to its dependency rows after the required confirmation for tasks with successors.
 - Completed tasks are never shifted automatically; they are returned as manual-resolution items.
 - Changing the project end date is separate from task shifts and can be explicitly confirmed.
 - Weekends/holidays/work calendars are ignored; shifts use calendar days.
@@ -108,3 +113,22 @@ POST   /api/v1/projects/{projectId}/tasks/{taskId}/shift-confirm
 ## Notes for production hardening
 
 This is intentionally an MVP. Authentication/authorization, audit history, soft deletion, optimistic concurrency and migrations can be added later without changing the core domain model.
+
+## Faster transport
+
+API responses use compact UTF-8 JSON and automatic Brotli/Gzip compression when the client sends `Accept-Encoding`. This is transparent to the frontend. Large collection queries also use direct projections instead of loading full EF entity graphs, which reduces database work and allocations.
+
+## Deletion semantics
+
+`DELETE` is a real deletion operation:
+
+```text
+DELETE /api/v1/projects/{id}
+DELETE /api/v1/projects/{projectId}/tasks/{taskId}
+DELETE /api/v1/projects/{projectId}/employees/{employeeId}
+DELETE /api/v1/projects/{projectId}/dependencies/{predecessorId}/{successorId}
+```
+
+For a task that has successors, the first DELETE returns `409 confirmation_required`; repeat it with `?confirm=true`. The task is then physically removed, and PostgreSQL cascade rules remove its dependency rows.
+
+> Для локального HTTPS используйте dev-сертификат ASP.NET Core: `dotnet dev-certs https --trust`.
