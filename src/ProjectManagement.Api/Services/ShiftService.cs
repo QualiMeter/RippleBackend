@@ -90,8 +90,8 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph)
 		{
 			analysis.Add(new AnalysisMessageDto(
 				AnalysisSeverity.Warning,
-				rootTaskId,
-value.Name,
+				rootTaskId
+				value.Name,
 				[.. items.Where(x => !x.CompletedRequiresManualResolution).Select(x => x.TaskId)],
 				[.. items.Where(x => !x.CompletedRequiresManualResolution).Select(x => x.TaskName)],
 				$"Предварительная дата окончания проекта увеличивается с {project.EndDate:yyyy-MM-dd} до {proposedProjectEnd:yyyy-MM-dd}. Изменение даты окончания проекта требует отдельного подтверждения.",
@@ -109,28 +109,33 @@ value.Name,
 
 	public async Task<ShiftConfirmationResponse> ConfirmAsync(Guid projectId, Guid rootTaskId, bool confirmProjectEnd, CancellationToken ct)
 	{
-		await using var transaction = await db.Database.BeginTransactionAsync(ct);
-		var preview = await BuildPreviewAsync(projectId, rootTaskId, ct);
+		var executionStrategy = db.Database.CreateExecutionStrategy();
 
-		foreach (var item in preview.Items.Where(x => !x.CompletedRequiresManualResolution && x.ShiftCalendarDays != 0))
+		return await executionStrategy.ExecuteAsync(async () =>
 		{
-			var task = await db.Tasks.SingleAsync(x => x.Id == item.TaskId && x.ProjectId == projectId, ct);
-			task.StartDate = item.ProposedStartDate;
-			task.EndDate = item.ProposedEndDate;
-		}
+			await using var transaction = await db.Database.BeginTransactionAsync(ct);
+			var preview = await BuildPreviewAsync(projectId, rootTaskId, ct);
 
-		var projectEndChanged = confirmProjectEnd && preview.ProposedProjectEndDate != preview.CurrentProjectEndDate;
-		if (projectEndChanged)
-		{
-			var project = await db.Projects.SingleAsync(x => x.Id == projectId, ct);
-			project.EndDate = preview.ProposedProjectEndDate;
-		}
+			foreach (var item in preview.Items.Where(x => !x.CompletedRequiresManualResolution && x.ShiftCalendarDays != 0))
+			{
+				var task = await db.Tasks.SingleAsync(x => x.Id == item.TaskId && x.ProjectId == projectId, ct);
+				task.StartDate = item.ProposedStartDate;
+				task.EndDate = item.ProposedEndDate;
+			}
 
-		await db.SaveChangesAsync(ct);
-		await transaction.CommitAsync(ct);
+			var projectEndChanged = confirmProjectEnd && preview.ProposedProjectEndDate != preview.CurrentProjectEndDate;
+			if (projectEndChanged)
+			{
+				var project = await db.Projects.SingleAsync(x => x.Id == projectId, ct);
+				project.EndDate = preview.ProposedProjectEndDate;
+			}
 
-		var refreshed = await BuildPreviewAsync(projectId, rootTaskId, ct);
-		return new ShiftConfirmationResponse(refreshed, projectEndChanged);
+			await db.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+
+			var refreshed = await BuildPreviewAsync(projectId, rootTaskId, ct);
+			return new ShiftConfirmationResponse(refreshed, projectEndChanged);
+		});
 	}
 
 	private static HashSet<Guid> CollectReachable(Guid root, IReadOnlyDictionary<Guid, List<Guid>> successors)
