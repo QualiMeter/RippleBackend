@@ -1,12 +1,12 @@
 {
-  "profiles": {
-	"ProjectManagement.Api": {
-	  "commandName": "Project",
-	  "launchBrowser": false,
-	  "applicationUrl": "https://localhost:7080",
-	  "environmentVariables": {
-		"ASPNETCORE_ENVIRONMENT": "Development"
-	  }
+	"profiles": {
+		"ProjectManagement.Api": {
+			"commandName": "Project",
+			"launchBrowser": false,
+			"applicationUrl": "https://localhost:7080",
+			"environmentVariables": {
+				"ASPNETCORE_ENVIRONMENT": "Development"
+			}
+		}
 	}
-  }
 }
