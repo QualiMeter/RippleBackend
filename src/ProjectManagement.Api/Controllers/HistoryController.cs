@@ -16,12 +16,14 @@ public sealed class HistoryController(AppDbContext db, ICurrentUserAccessor curr
 		return Ok(await history.GetAsync(projectId, ct));
 	}
 
-	[HttpPost("undo")]
-	public async Task<ActionResult<ChangeHistoryDto>> Undo(Guid projectId, CancellationToken ct)
+	[HttpPost("{historyId:guid}/undo")]
+	public async Task<ActionResult<ChangeHistoryDto>> Undo(Guid projectId, Guid historyId, CancellationToken ct)
 	{
 		await EnsureProjectAsync(projectId, ct);
-		var result = await history.UndoAsync(projectId, ct);
-		if (result is null) return NoContent();
+		var result = await history.UndoAsync(projectId, historyId, ct);
+		if (result is null) return NotFound();
+		if (!result.CanUndo) return Conflict(new { message = "This history version has already been undone.", historyId });
+
 		await realtime.PublishAsync(projectId, "history", "undone", result.Id, result, ct);
 		foreach (var item in await history.GetItemsAsync(result.Id, ct))
 		{

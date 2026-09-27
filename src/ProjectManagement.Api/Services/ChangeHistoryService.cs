@@ -41,7 +41,6 @@ public sealed class ChangeHistoryService(AppDbContext db)
 		return await db.ChangeOperations.AsNoTracking()
 			.Where(x => x.ProjectId == projectId)
 			.OrderByDescending(x => x.CreatedAt)
-			.Take(100)
 			.Select(x => new ChangeHistoryDto(x.Id, x.OperationType, x.Description, x.CreatedAt, x.UndoneAt == null))
 			.ToListAsync(ct);
 	}
@@ -56,14 +55,13 @@ public sealed class ChangeHistoryService(AppDbContext db)
 			.ToListAsync(ct);
 	}
 
-	public async Task<ChangeHistoryDto?> UndoAsync(Guid projectId, CancellationToken ct)
+	public async Task<ChangeHistoryDto?> UndoAsync(Guid projectId, Guid historyId, CancellationToken ct)
 	{
 		var operation = await db.ChangeOperations
 			.Include(x => x.Items)
-			.Where(x => x.ProjectId == projectId && x.UndoneAt == null)
-			.OrderByDescending(x => x.CreatedAt)
-			.FirstOrDefaultAsync(ct);
+			.SingleOrDefaultAsync(x => x.Id == historyId && x.ProjectId == projectId, ct);
 		if (operation is null) return null;
+		if (operation.UndoneAt is not null) return new ChangeHistoryDto(operation.Id, operation.OperationType, operation.Description, operation.CreatedAt, false);
 
 		var strategy = db.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(async () =>
