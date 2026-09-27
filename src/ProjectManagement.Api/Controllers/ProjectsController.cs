@@ -112,7 +112,7 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 		var employees = await db.Employees.AsNoTracking()
 			.Where(x => x.ProjectId == projectId)
 			.OrderBy(x => x.Name)
-			.Select(x => new EmployeeDto(x.Id, x.ProjectId, x.Name, x.Tasks.Count))
+			.Select(x => new EmployeeDto(x.Id, x.ProjectId, x.Name, x.Phone, x.Email, x.Tasks.Count))
 			.ToListAsync(ct);
 
 		var tasks = await db.Tasks.AsNoTracking()
