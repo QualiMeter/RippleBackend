@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/employees")]
-public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor currentUser) : ControllerBase
+public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<EmployeeDto>>> GetAll(Guid projectId, CancellationToken ct)
@@ -32,7 +32,10 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 			Phone = NormalizeOptional(request.Phone),
 			Email = NormalizeOptional(request.Email)
 		};
+		var operation = history.Begin(projectId, "employee.create", $"Добавлен сотрудник: {employee.Name}");
+		history.Add(operation, "employee", employee.Id, null, ChangeHistoryService.Snapshot(employee));
 		db.Employees.Add(employee);
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		return Created($"/api/v1/projects/{projectId}/employees/{employee.Id}", new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, 0));
 	}
@@ -53,9 +56,13 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		if (string.IsNullOrWhiteSpace(request.Name)) return ValidationProblem("Employee name is required.");
 		var employee = await db.Employees.SingleOrDefaultAsync(x => x.Id == employeeId && x.ProjectId == projectId, ct);
 		if (employee is null) return NotFound();
+		var before = ChangeHistoryService.Snapshot(employee);
 		employee.Name = request.Name.Trim();
 		employee.Phone = NormalizeOptional(request.Phone);
 		employee.Email = NormalizeOptional(request.Email);
+		var operation = history.Begin(projectId, "employee.update", $"Изменён сотрудник: {employee.Name}");
+		history.Add(operation, "employee", employee.Id, before, ChangeHistoryService.Snapshot(employee));
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		var count = await db.Tasks.CountAsync(x => x.AssigneeId == employeeId, ct);
 		return Ok(new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, count));
@@ -68,11 +75,12 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		var employee = await db.Employees.SingleOrDefaultAsync(x => x.Id == employeeId && x.ProjectId == projectId, ct);
 		if (employee is null) return NotFound();
 		if (await db.Tasks.AnyAsync(x => x.AssigneeId == employeeId, ct)) return Conflict(new ApiErrorDto("employee_in_use", "Employee cannot be deleted while assigned to tasks."));
-		var deleted = await db.Employees
-			.Where(x => x.Id == employeeId && x.ProjectId == projectId)
-			.ExecuteDeleteAsync(ct);
-
-		return deleted == 0 ? NotFound() : NoContent();
+		var operation = history.Begin(projectId, "employee.delete", $"Удалён сотрудник: {employee.Name}");
+		history.Add(operation, "employee", employee.Id, ChangeHistoryService.Snapshot(employee), null);
+		db.Employees.Remove(employee);
+		db.ChangeOperations.Add(operation);
+		await db.SaveChangesAsync(ct);
+		return NoContent();
 	}
 
 	private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

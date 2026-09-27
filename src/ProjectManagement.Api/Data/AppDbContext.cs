@@ -10,6 +10,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 	public DbSet<Employee> Employees => Set<Employee>();
 	public DbSet<ProjectTask> Tasks => Set<ProjectTask>();
 	public DbSet<TaskDependency> TaskDependencies => Set<TaskDependency>();
+	public DbSet<ChangeOperation> ChangeOperations => Set<ChangeOperation>();
+	public DbSet<ChangeItem> ChangeItems => Set<ChangeItem>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
@@ -77,6 +79,34 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 			b.HasOne(x => x.PredecessorTask).WithMany(x => x.SuccessorLinks).HasForeignKey(x => x.PredecessorTaskId).OnDelete(DeleteBehavior.Cascade);
 			b.HasOne(x => x.SuccessorTask).WithMany(x => x.PredecessorLinks).HasForeignKey(x => x.SuccessorTaskId).OnDelete(DeleteBehavior.Cascade);
 			b.HasIndex(x => x.SuccessorTaskId);
+		});
+
+		modelBuilder.Entity<ChangeOperation>(b =>
+		{
+			b.ToTable("change_operations");
+			b.HasKey(x => x.Id);
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.ProjectId).HasColumnName("project_id");
+			b.Property(x => x.OperationType).HasColumnName("operation_type").HasMaxLength(64).IsRequired();
+			b.Property(x => x.Description).HasColumnName("description").HasMaxLength(500).IsRequired();
+			b.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+			b.Property(x => x.UndoneAt).HasColumnName("undone_at");
+			b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.SetNull);
+			b.HasIndex(x => new { x.ProjectId, x.CreatedAt });
+		});
+
+		modelBuilder.Entity<ChangeItem>(b =>
+		{
+			b.ToTable("change_items");
+			b.HasKey(x => x.Id);
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.OperationId).HasColumnName("operation_id").IsRequired();
+			b.Property(x => x.EntityType).HasColumnName("entity_type").HasMaxLength(64).IsRequired();
+			b.Property(x => x.EntityId).HasColumnName("entity_id").IsRequired();
+			b.Property(x => x.BeforeJson).HasColumnName("before_json").HasColumnType("text");
+			b.Property(x => x.AfterJson).HasColumnName("after_json").HasColumnType("text");
+			b.HasOne(x => x.Operation).WithMany(x => x.Items).HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Cascade);
+			b.HasIndex(x => x.OperationId);
 		});
 	}
 }

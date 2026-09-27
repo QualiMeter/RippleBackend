@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/dependencies")]
-public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor currentUser, DependencyGraphService graph) : ControllerBase
+public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor currentUser, DependencyGraphService graph, ChangeHistoryService history) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<DependencyDto>>> GetAll(Guid projectId, CancellationToken ct)
@@ -42,7 +42,10 @@ public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor
 		var predecessor = tasks.Single(x => x.Id == request.PredecessorTaskId);
 		var successor = tasks.Single(x => x.Id == request.SuccessorTaskId);
 		var link = new TaskDependency { PredecessorTaskId = predecessor.Id, SuccessorTaskId = successor.Id, CreatedAt = DateTimeOffset.UtcNow };
+		var operation = history.Begin(projectId, "dependency.create", $"Добавлена связь: {predecessor.Name} -> {successor.Name}");
+		history.Add(operation, "task_dependency", predecessor.Id, null, ChangeHistoryService.Snapshot(link));
 		db.TaskDependencies.Add(link);
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 
 		var dependency = new DependencyDto(link.PredecessorTaskId, link.SuccessorTaskId, projectId, predecessor.Name, successor.Name);
@@ -58,7 +61,10 @@ public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor
 		await EnsureProjectAsync(projectId, ct);
 		var link = await db.TaskDependencies.Include(x => x.SuccessorTask).SingleOrDefaultAsync(x => x.PredecessorTaskId == predecessorId && x.SuccessorTaskId == successorId && x.SuccessorTask.ProjectId == projectId, ct);
 		if (link is null) return NotFound();
+		var operation = history.Begin(projectId, "dependency.delete", $"Удалена связь: {link.PredecessorTaskId} -> {link.SuccessorTaskId}");
+		history.Add(operation, "task_dependency", link.PredecessorTaskId, ChangeHistoryService.Snapshot(link), null);
 		db.TaskDependencies.Remove(link);
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 
 		var hasOtherPredecessors = await db.TaskDependencies.AnyAsync(x => x.SuccessorTaskId == successorId, ct);

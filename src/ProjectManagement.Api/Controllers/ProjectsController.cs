@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects")]
-public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser) : ControllerBase
+public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<ProjectListItemDto>>> GetAll(CancellationToken ct)
@@ -49,7 +49,10 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 			EndDate = request.EndDate,
 			CreatorId = userId
 		};
+		var operation = history.Begin(project.Id, "project.create", $"Создан проект: {project.Name}");
+		history.Add(operation, "project", project.Id, null, ChangeHistoryService.Snapshot(project));
 		db.Projects.Add(project);
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		return CreatedAtAction(nameof(Get), new { id = project.Id }, await BuildDetailsAsync(project.Id, ct));
 	}
@@ -78,9 +81,13 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 			return NotFound();
 		}
 
+		var before = ChangeHistoryService.Snapshot(project);
 		project.Name = request.Name.Trim();
 		project.StartDate = request.StartDate;
 		project.EndDate = request.EndDate;
+		var operation = history.Begin(project.Id, "project.update", $"Изменён проект: {project.Name}");
+		history.Add(operation, "project", project.Id, before, ChangeHistoryService.Snapshot(project));
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		return Ok(await BuildDetailsAsync(project.Id, ct));
 	}

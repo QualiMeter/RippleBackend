@@ -5,7 +5,7 @@ using ProjectManagement.Api.Domain;
 
 namespace ProjectManagement.Api.Services;
 
-public sealed class ShiftService(AppDbContext db, DependencyGraphService graph)
+public sealed class ShiftService(AppDbContext db, DependencyGraphService graph, ChangeHistoryService history)
 {
 	public async Task<ShiftPreviewDto> BuildPreviewAsync(Guid projectId, Guid rootTaskId, CancellationToken ct)
 	{
@@ -121,6 +121,9 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph)
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(ct);
 			var preview = await BuildPreviewAsync(projectId, rootTaskId, ct);
+			var changedTaskIds = preview.Items.Where(x => !x.CompletedRequiresManualResolution && x.ShiftCalendarDays != 0).Select(x => x.TaskId).ToList();
+			var beforeTasks = await db.Tasks.Where(x => changedTaskIds.Contains(x.Id)).ToListAsync(ct);
+			var projectBefore = await db.Projects.SingleAsync(x => x.Id == projectId, ct);
 
 			foreach (var item in preview.Items.Where(x => !x.CompletedRequiresManualResolution && x.ShiftCalendarDays != 0))
 			{
@@ -136,6 +139,16 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph)
 				project.EndDate = preview.ProposedProjectEndDate;
 			}
 
+			var operation = history.Begin(projectId, "task.shift", "Подтверждён автоматический сдвиг зависимых задач");
+			foreach (var before in beforeTasks)
+			{
+				var after = await db.Tasks.AsNoTracking().SingleAsync(x => x.Id == before.Id, ct);
+				history.Add(operation, "task", before.Id, ChangeHistoryService.Snapshot(before), ChangeHistoryService.Snapshot(after));
+			}
+			if (projectEndChanged)
+				history.Add(operation, "project", projectId, ChangeHistoryService.Snapshot(projectBefore), ChangeHistoryService.Snapshot(await db.Projects.AsNoTracking().SingleAsync(x => x.Id == projectId, ct)));
+			if (operation.Items.Count > 0)
+				db.ChangeOperations.Add(operation);
 			await db.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 

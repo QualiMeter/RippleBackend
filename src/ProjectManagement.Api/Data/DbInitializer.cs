@@ -9,6 +9,30 @@ public static class DbInitializer
 	{
 		await db.Database.EnsureCreatedAsync(cancellationToken);
 
+		await db.Database.ExecuteSqlRawAsync("""
+CREATE TABLE IF NOT EXISTS change_operations (
+	"Id" uuid PRIMARY KEY,
+	project_id uuid NULL REFERENCES projects("Id") ON DELETE SET NULL,
+	operation_type varchar(64) NOT NULL,
+	description varchar(500) NOT NULL,
+	created_at timestamptz NOT NULL,
+	undone_at timestamptz NULL
+);
+ALTER TABLE change_operations ALTER COLUMN project_id DROP NOT NULL;
+ALTER TABLE change_operations DROP CONSTRAINT IF EXISTS change_operations_project_id_fkey;
+ALTER TABLE change_operations ADD CONSTRAINT change_operations_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects("Id") ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS ix_change_operations_project_created ON change_operations(project_id, created_at);
+CREATE TABLE IF NOT EXISTS change_items (
+	"Id" uuid PRIMARY KEY,
+	operation_id uuid NOT NULL REFERENCES change_operations("Id") ON DELETE CASCADE,
+	entity_type varchar(64) NOT NULL,
+	entity_id uuid NOT NULL,
+	before_json text NULL,
+	after_json text NULL
+);
+CREATE INDEX IF NOT EXISTS ix_change_items_operation ON change_items(operation_id);
+""", cancellationToken);
+
 		await db.Database.ExecuteSqlRawAsync("ALTER TABLE employees ADD COLUMN IF NOT EXISTS phone varchar(40)", cancellationToken);
 		await db.Database.ExecuteSqlRawAsync("ALTER TABLE employees ADD COLUMN IF NOT EXISTS email varchar(254)", cancellationToken);
 

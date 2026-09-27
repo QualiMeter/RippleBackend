@@ -132,3 +132,15 @@ DELETE /api/v1/projects/{projectId}/dependencies/{predecessorId}/{successorId}
 For a task that has successors, the first DELETE returns `409 confirmation_required`; repeat it with `?confirm=true`. The task is then physically removed, and PostgreSQL cascade rules remove its dependency rows.
 
 > Для локального HTTPS используйте dev-сертификат ASP.NET Core: `dotnet dev-certs https --trust`.
+
+
+## Undo / история изменений
+
+Для каждого изменения проекта создаётся атомарная операция истории. История хранится в PostgreSQL и сохраняется после перезапуска API.
+
+- `GET /api/v1/projects/{projectId}/history` — последние изменения проекта.
+- `POST /api/v1/projects/{projectId}/history/undo` — отменить последнее ещё не отменённое изменение.
+
+Поддерживаются создание/изменение/удаление задач, создание/изменение/удаление сотрудников, добавление/удаление связей, изменение проекта и подтверждённый автоматический сдвиг задач.
+
+Удаление задачи восстанавливает также все её зависимости. Одно подтверждённое действие с несколькими затронутыми задачами хранится как одна операция Undo.

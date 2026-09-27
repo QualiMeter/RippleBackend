@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/tasks")]
-public sealed class TasksController(AppDbContext db, ICurrentUserAccessor currentUser, AnalysisService analysis, ShiftService shift) : ControllerBase
+public sealed class TasksController(AppDbContext db, ICurrentUserAccessor currentUser, AnalysisService analysis, ShiftService shift, ChangeHistoryService history) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<TaskListItemDto>>> GetAll(Guid projectId, CancellationToken ct)
@@ -52,7 +52,10 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 			AssigneeId = request.AssigneeId,
 			Status = status
 		};
+		var operation = history.Begin(projectId, "task.create", $"Добавлена задача: {task.Name}");
+		history.Add(operation, "task", task.Id, null, ChangeHistoryService.Snapshot(task));
 		db.Tasks.Add(task);
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		var full = await LoadTaskAsync(projectId, task.Id, ct);
 		var messages = await analysis.AnalyzeTaskChangeAsync(task, full, ct);
@@ -88,6 +91,9 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 		task.EndDate = request.EndDate;
 		task.AssigneeId = request.AssigneeId;
 		task.Status = status;
+		var operation = history.Begin(projectId, "task.update", $"Изменена задача: {task.Name}");
+		history.Add(operation, "task", task.Id, ChangeHistoryService.Snapshot(before), ChangeHistoryService.Snapshot(task));
+		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		var full = await LoadTaskAsync(projectId, taskId, ct);
 		var messages = await analysis.AnalyzeTaskChangeAsync(before, full, ct);
@@ -120,13 +126,20 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 			return Conflict(new { code = "confirmation_required", message = "Task has successor tasks. Repeat DELETE with confirm=true to delete.", analysis = messages });
 		}
 
-		// Реальный DELETE: задача физически удаляется из БД.
-		// Связи task_dependencies удаляются каскадно на уровне PostgreSQL.
-		var deleted = await db.Tasks
-			.Where(x => x.Id == taskId && x.ProjectId == projectId)
-			.ExecuteDeleteAsync(ct);
-
-		return deleted == 0 ? NotFound() : NoContent();
+		var dependencies = await db.TaskDependencies
+			.Where(x => x.PredecessorTaskId == taskId || x.SuccessorTaskId == taskId)
+			.AsNoTracking()
+			.ToListAsync(ct);
+		var operation = history.Begin(projectId, "task.delete", $"Удалена задача: {task.Name}");
+		history.Add(operation, "task", task.Id, ChangeHistoryService.Snapshot(task), null);
+		foreach (var dependency in dependencies)
+		{
+			history.Add(operation, "task_dependency", dependency.PredecessorTaskId, ChangeHistoryService.Snapshot(dependency), null);
+		}
+		db.Tasks.Remove(task);
+		db.ChangeOperations.Add(operation);
+		await db.SaveChangesAsync(ct);
+		return NoContent();
 	}
 
 	[HttpGet("{taskId:guid}/analysis")]

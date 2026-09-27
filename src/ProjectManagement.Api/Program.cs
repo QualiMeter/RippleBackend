@@ -63,6 +63,8 @@ builder.Services.AddScoped<AnalysisService>();
 builder.Services.AddScoped<DependencyGraphService>();
 builder.Services.AddScoped<ShiftService>();
 
+builder.Services.AddScoped<ChangeHistoryService>();
+
 var app = builder.Build();
 
 app.UseForwardedHeaders(new ForwardedHeadersOptions
