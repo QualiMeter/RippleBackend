@@ -90,7 +90,7 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph)
 		{
 			analysis.Add(new AnalysisMessageDto(
 				AnalysisSeverity.Warning,
-				rootTaskId
+				rootTaskId,
 				value.Name,
 				[.. items.Where(x => !x.CompletedRequiresManualResolution).Select(x => x.TaskId)],
 				[.. items.Where(x => !x.CompletedRequiresManualResolution).Select(x => x.TaskName)],
