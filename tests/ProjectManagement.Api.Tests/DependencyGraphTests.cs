@@ -1,4 +1,6 @@
 using ProjectManagement.Api.Domain;
+using ProjectManagement.Api.Services;
+
 using Xunit;
 
 namespace ProjectManagement.Api.Tests;
