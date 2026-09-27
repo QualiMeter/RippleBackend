@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using ProjectManagement.Api.Data;
 using ProjectManagement.Api.Middleware;
+using ProjectManagement.Api.Hubs;
 using ProjectManagement.Api.Services;
 using Scalar.AspNetCore;
 
@@ -30,6 +31,8 @@ builder.Services.AddCors(options =>
 			.AllowAnyMethod();
 	});
 });
+builder.Services.AddSignalR();
+
 builder.Services.AddControllers()
 	.AddJsonOptions(options =>
 	{
@@ -64,6 +67,8 @@ builder.Services.AddScoped<DependencyGraphService>();
 builder.Services.AddScoped<ShiftService>();
 
 builder.Services.AddScoped<ChangeHistoryService>();
+builder.Services.AddScoped<AppDbContextAccessor>();
+builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
 
 var app = builder.Build();
 
@@ -77,6 +82,7 @@ app.UseCors("Frontend");
 app.MapOpenApi();
 app.MapScalarApiReference("/scalar", options => options.WithTitle("Project Management MVP API").WithOpenApiRoutePattern("/openapi/{documentName}.json"));
 app.MapControllers();
+app.MapHub<ProjectHub>("/hubs/projects");
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

@@ -144,3 +144,31 @@ For a task that has successors, the first DELETE returns `409 confirmation_requi
 Поддерживаются создание/изменение/удаление задач, создание/изменение/удаление сотрудников, добавление/удаление связей, изменение проекта и подтверждённый автоматический сдвиг задач.
 
 Удаление задачи восстанавливает также все её зависимости. Одно подтверждённое действие с несколькими затронутыми задачами хранится как одна операция Undo.
+
+
+## Realtime / SignalR
+
+The API exposes SignalR at `/hubs/projects`. REST remains the source of truth for CRUD and initial loading; SignalR is used for incremental UI updates.
+
+Client flow:
+
+1. Connect to `/hubs/projects`.
+2. Invoke `JoinProject(projectId)`.
+3. Subscribe to `projectChanged`.
+4. Update only the affected entity in the local state using `entity`, `action`, `entityId` and `data`.
+
+Example event:
+
+```json
+{
+  "eventId": "...",
+  "projectId": "...",
+  "entity": "task",
+  "action": "updated",
+  "entityId": "...",
+  "data": { "id": "...", "name": "..." },
+  "occurredAt": "..."
+}
+```
+
+Supported entity events include `project`, `task`, `employee`, `task_dependency` and `history`. Actions include `created`, `updated`, `deleted`, `restored`, `undone` and `refresh`.

@@ -7,7 +7,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/history")]
-public sealed class HistoryController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history) : ControllerBase
+public sealed class HistoryController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<ChangeHistoryDto>>> Get(Guid projectId, CancellationToken ct)
@@ -21,7 +21,16 @@ public sealed class HistoryController(AppDbContext db, ICurrentUserAccessor curr
 	{
 		await EnsureProjectAsync(projectId, ct);
 		var result = await history.UndoAsync(projectId, ct);
-		return result is null ? NoContent() : Ok(result);
+		if (result is null) return NoContent();
+		await realtime.PublishAsync(projectId, "history", "undone", result.Id, result, ct);
+		foreach (var item in await history.GetItemsAsync(result.Id, ct))
+		{
+			var action = item.BeforeJson is null ? "deleted" : item.AfterJson is null ? "restored" : "updated";
+			var json = item.BeforeJson ?? item.AfterJson;
+			object? data = json is null ? null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
+			await realtime.PublishAsync(projectId, item.EntityType, action, item.EntityId, data, ct);
+		}
+		return Ok(result);
 	}
 
 	private async Task EnsureProjectAsync(Guid projectId, CancellationToken ct)

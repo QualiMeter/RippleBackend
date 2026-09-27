@@ -6,6 +6,7 @@ using ProjectManagement.Api.Domain;
 namespace ProjectManagement.Api.Services;
 
 public sealed record ChangeHistoryDto(Guid Id, string OperationType, string Description, DateTimeOffset CreatedAt, bool CanUndo);
+public sealed record ChangeHistoryItemDto(string EntityType, Guid EntityId, string? BeforeJson, string? AfterJson);
 
 public sealed class ChangeHistoryService(AppDbContext db)
 {
@@ -42,6 +43,16 @@ public sealed class ChangeHistoryService(AppDbContext db)
 			.OrderByDescending(x => x.CreatedAt)
 			.Take(100)
 			.Select(x => new ChangeHistoryDto(x.Id, x.OperationType, x.Description, x.CreatedAt, x.UndoneAt == null))
+			.ToListAsync(ct);
+	}
+
+	public async Task<IReadOnlyList<ChangeHistoryItemDto>> GetItemsAsync(Guid operationId, CancellationToken ct)
+	{
+		return await db.ChangeItems.AsNoTracking()
+			.Where(x => x.OperationId == operationId)
+			.OrderBy(x => x.EntityType)
+			.ThenBy(x => x.EntityId)
+			.Select(x => new ChangeHistoryItemDto(x.EntityType, x.EntityId, x.BeforeJson, x.AfterJson))
 			.ToListAsync(ct);
 	}
 

@@ -5,7 +5,7 @@ using ProjectManagement.Api.Domain;
 
 namespace ProjectManagement.Api.Services;
 
-public sealed class ShiftService(AppDbContext db, DependencyGraphService graph, ChangeHistoryService history)
+public sealed class ShiftService(AppDbContext db, DependencyGraphService graph, ChangeHistoryService history, IRealtimeNotifier realtime)
 {
 	public async Task<ShiftPreviewDto> BuildPreviewAsync(Guid projectId, Guid rootTaskId, CancellationToken ct)
 	{
@@ -151,6 +151,14 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph, 
 				db.ChangeOperations.Add(operation);
 			await db.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
+
+			foreach (var item in preview.Items.Where(x => !x.CompletedRequiresManualResolution && x.ShiftCalendarDays != 0))
+			{
+				var dto = await db.Tasks.AsNoTracking().Include(x => x.Assignee).Include(x => x.PredecessorLinks).Include(x => x.SuccessorLinks).SingleAsync(x => x.Id == item.TaskId, ct);
+				await realtime.PublishAsync(projectId, "task", "updated", item.TaskId, ProjectMapper.ToDetailsDto(dto), ct);
+			}
+			if (projectEndChanged)
+				await realtime.PublishAsync(projectId, "project", "updated", projectId, new { endDate = preview.ProposedProjectEndDate }, ct);
 
 			var refreshed = await BuildPreviewAsync(projectId, rootTaskId, ct);
 			return new ShiftConfirmationResponse(refreshed, projectEndChanged);

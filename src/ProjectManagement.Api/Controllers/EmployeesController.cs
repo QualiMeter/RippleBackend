@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/employees")]
-public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history) : ControllerBase
+public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<EmployeeDto>>> GetAll(Guid projectId, CancellationToken ct)
@@ -37,6 +37,7 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		db.Employees.Add(employee);
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
+		await realtime.PublishAsync(projectId, "employee", "created", employee.Id, new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, 0), ct);
 		return Created($"/api/v1/projects/{projectId}/employees/{employee.Id}", new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, 0));
 	}
 
@@ -65,6 +66,7 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
 		var count = await db.Tasks.CountAsync(x => x.AssigneeId == employeeId, ct);
+		await realtime.PublishAsync(projectId, "employee", "updated", employee.Id, new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, count), ct);
 		return Ok(new EmployeeDto(employee.Id, employee.ProjectId, employee.Name, employee.Phone, employee.Email, count));
 	}
 
@@ -80,6 +82,7 @@ public sealed class EmployeesController(AppDbContext db, ICurrentUserAccessor cu
 		db.Employees.Remove(employee);
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
+		await realtime.PublishAsync(projectId, "employee", "deleted", employeeId, null, ct);
 		return NoContent();
 	}
 

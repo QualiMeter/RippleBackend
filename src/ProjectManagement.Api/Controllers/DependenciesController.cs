@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/dependencies")]
-public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor currentUser, DependencyGraphService graph, ChangeHistoryService history) : ControllerBase
+public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor currentUser, DependencyGraphService graph, ChangeHistoryService history, IRealtimeNotifier realtime) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<DependencyDto>>> GetAll(Guid projectId, CancellationToken ct)
@@ -49,6 +49,7 @@ public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor
 		await db.SaveChangesAsync(ct);
 
 		var dependency = new DependencyDto(link.PredecessorTaskId, link.SuccessorTaskId, projectId, predecessor.Name, successor.Name);
+		await realtime.PublishAsync(projectId, "task_dependency", "created", link.SuccessorTaskId, dependency, ct);
 		var analysis = successor.StartDate < predecessor.EndDate
 			? [new AnalysisMessageDto(AnalysisSeverity.Warning, predecessor.Id, predecessor.Name, [successor.Id], [successor.Name], $"Последующая задача начинается {successor.StartDate:yyyy-MM-dd}, раньше окончания предшественника {predecessor.EndDate:yyyy-MM-dd}.", [new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)])]
 			: Array.Empty<AnalysisMessageDto>();
@@ -66,6 +67,7 @@ public sealed class DependenciesController(AppDbContext db, ICurrentUserAccessor
 		db.TaskDependencies.Remove(link);
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
+		await realtime.PublishAsync(projectId, "task_dependency", "deleted", successorId, new { predecessorId, successorId }, ct);
 
 		var hasOtherPredecessors = await db.TaskDependencies.AnyAsync(x => x.SuccessorTaskId == successorId, ct);
 		if (!hasOtherPredecessors)

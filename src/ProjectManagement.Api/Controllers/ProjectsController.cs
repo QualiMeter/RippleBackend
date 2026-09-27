@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects")]
-public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history) : ControllerBase
+public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<ProjectListItemDto>>> GetAll(CancellationToken ct)
@@ -54,7 +54,9 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 		db.Projects.Add(project);
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
-		return CreatedAtAction(nameof(Get), new { id = project.Id }, await BuildDetailsAsync(project.Id, ct));
+		var createdDetails = await BuildDetailsAsync(project.Id, ct);
+		await realtime.PublishAsync(project.Id, "project", "created", project.Id, createdDetails, ct);
+		return CreatedAtAction(nameof(Get),, new { id = project.Id }, await BuildDetailsAsync(project.Id, ct));
 	}
 
 	[HttpGet("{id:guid}")]
@@ -89,7 +91,9 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 		history.Add(operation, "project", project.Id, before, ChangeHistoryService.Snapshot(project));
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
-		return Ok(await BuildDetailsAsync(project.Id, ct));
+		var updatedDetails = await BuildDetailsAsync(project.Id, ct);
+		await realtime.PublishAsync(project.Id, "project", "updated", project.Id, updatedDetails, ct);
+		return Ok(updatedDetails);
 	}
 
 	[HttpDelete("{id:guid}")]
@@ -108,7 +112,9 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 			.Where(x => x.Id == id && x.CreatorId == userId)
 			.ExecuteDeleteAsync(ct);
 
-		return deleted == 0 ? NotFound() : NoContent();
+		if (deleted == 0) return NotFound();
+		await realtime.PublishAsync(id, "project", "deleted", id, null, ct);
+		return NoContent();
 	}
 
 	private async Task<ProjectDetailsDto> BuildDetailsAsync(Guid projectId, CancellationToken ct)

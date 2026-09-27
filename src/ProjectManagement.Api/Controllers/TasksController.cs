@@ -9,7 +9,7 @@ namespace ProjectManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects/{projectId:guid}/tasks")]
-public sealed class TasksController(AppDbContext db, ICurrentUserAccessor currentUser, AnalysisService analysis, ShiftService shift, ChangeHistoryService history) : ControllerBase
+public sealed class TasksController(AppDbContext db, ICurrentUserAccessor currentUser, AnalysisService analysis, ShiftService shift, ChangeHistoryService history, IRealtimeNotifier realtime) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<TaskListItemDto>>> GetAll(Guid projectId, CancellationToken ct)
@@ -59,6 +59,7 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 		await db.SaveChangesAsync(ct);
 		var full = await LoadTaskAsync(projectId, task.Id, ct);
 		var messages = await analysis.AnalyzeTaskChangeAsync(task, full, ct);
+		await realtime.PublishAsync(projectId, "task", "created", task.Id, ProjectMapper.ToDetailsDto(full), ct);
 		return CreatedAtAction(nameof(Get), new { projectId, taskId = task.Id }, new TaskMutationResponse(ProjectMapper.ToDetailsDto(full), messages));
 	}
 
@@ -97,6 +98,7 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 		await db.SaveChangesAsync(ct);
 		var full = await LoadTaskAsync(projectId, taskId, ct);
 		var messages = await analysis.AnalyzeTaskChangeAsync(before, full, ct);
+		await realtime.PublishAsync(projectId, "task", "updated", task.Id, ProjectMapper.ToDetailsDto(full), ct);
 		return Ok(new TaskMutationResponse(ProjectMapper.ToDetailsDto(full), messages));
 	}
 
@@ -139,6 +141,9 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 		db.Tasks.Remove(task);
 		db.ChangeOperations.Add(operation);
 		await db.SaveChangesAsync(ct);
+		await realtime.PublishAsync(projectId, "task", "deleted", taskId, null, ct);
+		foreach (var dependency in dependencies)
+			await realtime.PublishAsync(projectId, "task_dependency", "deleted", dependency.SuccessorTaskId, new { dependency.PredecessorTaskId, dependency.SuccessorTaskId }, ct);
 		return NoContent();
 	}
 
