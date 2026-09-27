@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="src/ProjectManagement.Api/ProjectManagement.Api.csproj" />
-  <Project Path="tests/ProjectManagement.Api.Tests/ProjectManagement.Api.Tests.csproj" />
-</Solution>

@@ -1,4 +1,4 @@
-# ProjectManagementMvp
+# Ripple
 
 MVP backend for the project-management case: projects, employees, tasks, task dependencies, impact analysis and a preview/confirmation flow for shifting downstream tasks.
 
@@ -37,7 +37,7 @@ Requires .NET 10 SDK.
 
 ```bash
 dotnet restore
-dotnet run --project src/ProjectManagement.Api
+dotnet run --project src/Ripple.Api
 ```
 
 API: `https://localhost:7080`

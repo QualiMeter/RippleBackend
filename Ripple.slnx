@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Ripple.Api/Ripple.Api.csproj" />
+  <Project Path="tests/Ripple.Api.Tests/Ripple.Api.Tests.csproj" />
+</Solution>
