@@ -20,9 +20,20 @@ builder.Services.AddCors(options =>
 		?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
 		?? [];
 
-	var origins = configuredOrigins.Length > 0
-		? configuredOrigins
-		: ["https://ripple-azure-one.vercel.app"];
+	var origins = configuredOrigins
+		.Concat([
+			"https://ripple-azure-one.vercel.app",
+			"http://localhost",
+			"https://localhost",
+			"http://localhost:3000",
+			"https://localhost:3000",
+			"http://localhost:5173",
+			"https://localhost:5173",
+			"http://localhost:8080",
+			"https://localhost:8080"
+		])
+		.Distinct(StringComparer.OrdinalIgnoreCase)
+		.ToArray();
 
 	options.AddPolicy("Frontend", policy =>
 	{
