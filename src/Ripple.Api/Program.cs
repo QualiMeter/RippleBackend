@@ -112,11 +112,7 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 	ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 });
 app.UseResponseCompression();
-app.UseDefaultFiles();
-app.UseMiddleware<DevUiPasswordMiddleware>();
-app.UseStaticFiles();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseMiddleware<ApiRequestLoggingMiddleware>();
 app.UseCors("Frontend");
 app.MapOpenApi();
 app.MapScalarApiReference("/scalar", options => options.WithTitle("Project Management MVP API").WithOpenApiRoutePattern("/openapi/{documentName}.json"));

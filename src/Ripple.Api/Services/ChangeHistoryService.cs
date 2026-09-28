@@ -41,7 +41,7 @@ public sealed class ChangeHistoryService(AppDbContext db)
 		return await db.ChangeOperations.AsNoTracking()
 			.Where(x => x.ProjectId == projectId)
 			.OrderByDescending(x => x.CreatedAt)
-			.Select(x => new ChangeHistoryDto(x.Id, x.OperationType, x.Description, x.CreatedAt, x.UndoneAt == null))
+			.Select(x => new ChangeHistoryDto(x.Id, x.OperationType, x.Description, x.CreatedAt, true))
 			.ToListAsync(ct);
 	}
 
@@ -57,23 +57,83 @@ public sealed class ChangeHistoryService(AppDbContext db)
 
 	public async Task<ChangeHistoryDto?> UndoAsync(Guid projectId, Guid historyId, CancellationToken ct)
 	{
-		var operation = await db.ChangeOperations
-			.Include(x => x.Items)
+		var target = await db.ChangeOperations
+			.AsNoTracking()
 			.SingleOrDefaultAsync(x => x.Id == historyId && x.ProjectId == projectId, ct);
-		if (operation is null) return null;
-		if (operation.UndoneAt is not null) return new ChangeHistoryDto(operation.Id, operation.OperationType, operation.Description, operation.CreatedAt, false);
+		if (target is null) return null;
+
+		var operations = await db.ChangeOperations
+			.AsNoTracking()
+			.Include(x => x.Items)
+			.Where(x => x.ProjectId == projectId)
+			.OrderBy(x => x.CreatedAt)
+			.ThenBy(x => x.Id)
+			.ToListAsync(ct);
+
+		var targetIndex = operations.FindIndex(x => x.Id == historyId);
+		if (targetIndex < 0) return null;
 
 		var strategy = db.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(ct);
-			await ApplyUndoAsync(operation, ct);
-			operation.UndoneAt = DateTimeOffset.UtcNow;
+
+			await ClearProjectStateAsync(projectId, ct);
+
+			for (var i = 0; i <= targetIndex; i++)
+				await ApplyForwardAsync(operations[i], ct);
+
 			await db.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
-			return new ChangeHistoryDto(operation.Id, operation.OperationType, operation.Description, operation.CreatedAt, false);
+
+			return new ChangeHistoryDto(
+				target.Id,
+				target.OperationType,
+				target.Description,
+				target.CreatedAt,
+				true);
 		});
 	}
+
+	private async Task ClearProjectStateAsync(Guid projectId, CancellationToken ct)
+	{
+		var dependencies = await db.TaskDependencies
+			.Where(x => x.PredecessorTask.ProjectId == projectId)
+			.ToListAsync(ct);
+		db.TaskDependencies.RemoveRange(dependencies);
+
+		var tasks = await db.Tasks.Where(x => x.ProjectId == projectId).ToListAsync(ct);
+		db.Tasks.RemoveRange(tasks);
+
+		var employees = await db.Employees.Where(x => x.ProjectId == projectId).ToListAsync(ct);
+		db.Employees.RemoveRange(employees);
+
+		await db.SaveChangesAsync(ct);
+
+		var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == projectId, ct);
+		if (project is not null)
+			db.Entry(project).State = EntityState.Detached;
+	}
+
+	private async Task ApplyForwardAsync(ChangeOperation operation, CancellationToken ct)
+	{
+		foreach (var item in operation.Items.OrderBy(x => ForwardOrder(x.EntityType)))
+		{
+			if (item.AfterJson is null)
+				await DeleteEntityAsync(item, ct, useAfterSnapshot: false);
+			else
+				await RestoreEntityAsync(item, item.AfterJson, ct);
+		}
+	}
+
+	private static int ForwardOrder(string type) => type switch
+	{
+		"project" => 0,
+		"employee" => 1,
+		"task" => 2,
+		"task_dependency" => 3,
+		_ => 10
+	};
 
 	private async Task ApplyUndoAsync(ChangeOperation operation, CancellationToken ct)
 	{
@@ -97,12 +157,13 @@ public sealed class ChangeHistoryService(AppDbContext db)
 		}
 	}
 
-	private async Task DeleteEntityAsync(ChangeItem item, CancellationToken ct)
+	private async Task DeleteEntityAsync(ChangeItem item, CancellationToken ct, bool useAfterSnapshot = true)
 	{
 		switch (item.EntityType)
 		{
 			case "task_dependency":
-				var dependency = await db.TaskDependencies.SingleOrDefaultAsync(x => x.PredecessorTaskId == ReadDependency(item.AfterJson!).PredecessorTaskId && x.SuccessorTaskId == ReadDependency(item.AfterJson!).SuccessorTaskId, ct);
+				var dependencySnapshot = useAfterSnapshot ? item.AfterJson : item.BeforeJson;
+				var dependency = dependencySnapshot is null ? null : await db.TaskDependencies.SingleOrDefaultAsync(x => x.PredecessorTaskId == ReadDependency(dependencySnapshot).PredecessorTaskId && x.SuccessorTaskId == ReadDependency(dependencySnapshot).SuccessorTaskId, ct);
 				if (dependency is not null) db.TaskDependencies.Remove(dependency);
 				break;
 			case "task":

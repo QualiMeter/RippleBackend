@@ -22,16 +22,12 @@ public sealed class HistoryController(AppDbContext db, ICurrentUserAccessor curr
 		await EnsureProjectAsync(projectId, ct);
 		var result = await history.UndoAsync(projectId, historyId, ct);
 		if (result is null) return NotFound();
-		if (!result.CanUndo) return Conflict(new { message = "This history version has already been undone.", historyId });
-
-		await realtime.PublishAsync(projectId, "history", "undone", result.Id, result, ct);
-		foreach (var item in await history.GetItemsAsync(result.Id, ct))
+		await realtime.PublishAsync(projectId, "history", "version-restored", result.Id, result, ct);
+		await realtime.PublishAsync(projectId, "project", "version-restored", projectId, new
 		{
-			var action = item.BeforeJson is null ? "deleted" : item.AfterJson is null ? "restored" : "updated";
-			var json = item.BeforeJson ?? item.AfterJson;
-			object? data = json is null ? null : System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
-			await realtime.PublishAsync(projectId, item.EntityType, action, item.EntityId, data, ct);
-		}
+			historyId = result.Id,
+			message = "Project state restored to the selected history version."
+		}, ct);
 		return Ok(result);
 	}
 

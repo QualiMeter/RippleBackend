@@ -48,33 +48,19 @@ public sealed class ProjectDiagnosticsService(AppDbContext db, AnalysisService a
 			x.PredecessorLinks.Select(d => d.PredecessorTaskId).ToList(),
 			x.SuccessorLinks.Select(d => d.SuccessorTaskId).ToList())).ToList();
 
-		var dependencyRows = await db.TaskDependencies.AsNoTracking()
+		var dependencies = await db.TaskDependencies.AsNoTracking()
 			.Where(x => x.PredecessorTask.ProjectId == projectId)
-			.Select(x => new
-			{
-				x.PredecessorTaskId,
-				PredecessorTaskName = x.PredecessorTask.Name,
-				PredecessorEndDate = x.PredecessorTask.EndDate,
-				x.SuccessorTaskId,
-				SuccessorTaskName = x.SuccessorTask.Name,
-				SuccessorStartDate = x.SuccessorTask.StartDate
-			})
-			.ToListAsync(ct);
-
-		var dependencies = dependencyRows
 			.Select(x => new ProjectDiagnosticsDependencyDto(
 				x.PredecessorTaskId,
-				x.PredecessorTaskName,
-				x.PredecessorEndDate,
+				x.PredecessorTask.Name,
+				x.PredecessorTask.EndDate,
 				x.SuccessorTaskId,
-				x.SuccessorTaskName,
-				x.SuccessorStartDate,
-				DependencyScheduleRules.HasDateConflict(
-					x.PredecessorEndDate,
-					x.SuccessorStartDate)))
+				x.SuccessorTask.Name,
+				x.SuccessorTask.StartDate,
+				DependencyScheduleRules.HasDateConflict(x.PredecessorTask.EndDate, x.SuccessorTask.StartDate)))
 			.OrderBy(x => x.PredecessorTaskName)
 			.ThenBy(x => x.SuccessorTaskName)
-			.ToList();
+			.ToListAsync(ct);
 
 		var projectAnalysis = await analysis.AnalyzeProjectAsync(projectId, ct);
 		var taskAnalysis = new Dictionary<Guid, IReadOnlyList<AnalysisMessageDto>>();
@@ -94,7 +80,7 @@ public sealed class ProjectDiagnosticsService(AppDbContext db, AnalysisService a
 				entry.Description,
 				entry.CreatedAt,
 				entry.UndoneAt,
-				entry.UndoneAt is null,
+				true,
 				await history.GetItemsAsync(entry.Id, ct)));
 		}
 
