@@ -14,4 +14,5 @@ public sealed record ProjectDetailsDto(
 	IReadOnlyList<EmployeeDto> Employees,
 	IReadOnlyList<TaskListItemDto> Tasks,
 	IReadOnlyList<DependencyDto> Dependencies,
-	IReadOnlyList<AnalysisMessageDto> BoundaryWarnings);
+	IReadOnlyList<AnalysisMessageDto> BoundaryWarnings,
+	IReadOnlyList<AnalysisMessageDto> CurrentProblems);

@@ -179,6 +179,7 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 			employees,
 			tasks,
 			dependencies,
+			warnings,
 			warnings);
 	}
 

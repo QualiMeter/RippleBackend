@@ -203,6 +203,21 @@ public sealed class AnalysisService(AppDbContext db)
 			}
 		}
 
+		foreach (var successor in successors)
+		{
+			if (DependencyScheduleRules.HasDateConflict(task.EndDate, successor.StartDate))
+			{
+				result.Add(new AnalysisMessageDto(
+					AnalysisSeverity.Warning,
+					task.Id,
+					task.Name,
+					[successor.Id],
+					[successor.Name],
+					$"Последующая задача {successor.Name} начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {task.EndDate:yyyy-MM-dd}.",
+					[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)]));
+			}
+		}
+
 		if (task.Status == ProjectTaskStatus.InProgress)
 		{
 			var unfinishedPredecessors = predecessors.Where(x => x.Status != ProjectTaskStatus.Completed).ToList();
