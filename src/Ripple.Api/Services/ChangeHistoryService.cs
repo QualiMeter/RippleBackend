@@ -110,9 +110,10 @@ public sealed class ChangeHistoryService(AppDbContext db)
 
 		await db.SaveChangesAsync(ct);
 
-		var project = await db.Projects.SingleOrDefaultAsync(x => x.Id == projectId, ct);
-		if (project is not null)
-			db.Entry(project).State = EntityState.Detached;
+		// The entities removed above remain tracked as Deleted. A later restore
+		// may add new instances with the same keys, which causes EF Core's
+		// identity-map conflict. Clear the tracker before rebuilding the version.
+		db.ChangeTracker.Clear();
 	}
 
 	private async Task ApplyForwardAsync(ChangeOperation operation, CancellationToken ct)
