@@ -188,7 +188,6 @@ public sealed class AnalysisService(AppDbContext db)
 			.AsNoTracking()
 			.ToListAsync(ct);
 
-<<<<<<< HEAD
 		foreach (var predecessor in predecessors)
 		{
 			if (DependencyScheduleRules.HasDateConflict(predecessor.EndDate, task.StartDate))
@@ -201,23 +200,6 @@ public sealed class AnalysisService(AppDbContext db)
 					[predecessor.Name],
 					$"Задача {task.Name} начинается {task.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {predecessor.Name} ({predecessor.EndDate:yyyy-MM-dd}). Между задачами есть конфликт дат.",
 					[new AnalysisActionDto("open-task", "Открыть предшественника", predecessor.Id), new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", task.Id)]));
-			}
-		}
-
-=======
->>>>>>> ca19c44d5c1ec2f61918f445263a5954b49e58d3
-		foreach (var successor in successors)
-		{
-			if (DependencyScheduleRules.HasDateConflict(task.EndDate, successor.StartDate))
-			{
-				result.Add(new AnalysisMessageDto(
-					AnalysisSeverity.Warning,
-					task.Id,
-					task.Name,
-					[successor.Id],
-					[successor.Name],
-					$"Последующая задача {successor.Name} начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {task.EndDate:yyyy-MM-dd}.",
-					[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)]));
 			}
 		}
 
