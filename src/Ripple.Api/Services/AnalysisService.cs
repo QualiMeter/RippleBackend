@@ -188,6 +188,7 @@ public sealed class AnalysisService(AppDbContext db)
 			.AsNoTracking()
 			.ToListAsync(ct);
 
+<<<<<<< HEAD
 		foreach (var predecessor in predecessors)
 		{
 			if (DependencyScheduleRules.HasDateConflict(predecessor.EndDate, task.StartDate))
@@ -203,6 +204,8 @@ public sealed class AnalysisService(AppDbContext db)
 			}
 		}
 
+=======
+>>>>>>> ca19c44d5c1ec2f61918f445263a5954b49e58d3
 		foreach (var successor in successors)
 		{
 			if (DependencyScheduleRules.HasDateConflict(task.EndDate, successor.StartDate))
