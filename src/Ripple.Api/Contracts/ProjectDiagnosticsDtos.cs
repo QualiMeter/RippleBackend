@@ -1,3 +1,5 @@
+using Ripple.Api.Services;
+
 namespace Ripple.Api.Contracts;
 
 public sealed record ProjectDiagnosticsDto(
