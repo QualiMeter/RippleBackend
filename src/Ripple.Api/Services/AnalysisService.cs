@@ -11,14 +11,16 @@ public sealed class AnalysisService(AppDbContext db)
 	{
 		var tasks = await db.Tasks.Where(x => x.ProjectId == project.Id).AsNoTracking().ToListAsync(ct);
 		return tasks
-			.Where(x => x.StartDate < project.StartDate || x.EndDate > project.EndDate)
+			.Where(x => x.StartDate < project.StartDate || x.EndDate > project.EndDate || IsOverdue(x, Today))
 			.Select(x => new AnalysisMessageDto(
 				AnalysisSeverity.Warning,
 				x.Id,
 				x.Name,
 				[x.Id],
 				[x.Name],
-				$"Задача выходит за границы проекта: {x.StartDate:yyyy-MM-dd} - {x.EndDate:yyyy-MM-dd}, проект: {project.StartDate:yyyy-MM-dd} - {project.EndDate:yyyy-MM-dd}.",
+				IsOverdue(x, Today)
+					? $"Задача просрочена: плановая дата окончания {x.EndDate:yyyy-MM-dd}, текущая дата {Today:yyyy-MM-dd}."
+					: $"Задача выходит за границы проекта: {x.StartDate:yyyy-MM-dd} - {x.EndDate:yyyy-MM-dd}, проект: {project.StartDate:yyyy-MM-dd} - {project.EndDate:yyyy-MM-dd}.",
 				[new AnalysisActionDto("open-task", "Открыть задачу", x.Id)]))
 			.ToList();
 	}
@@ -27,6 +29,8 @@ public sealed class AnalysisService(AppDbContext db)
 	{
 		var result = new List<AnalysisMessageDto>();
 		var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == after.ProjectId, ct);
+
+		AddOverdueWarning(result, after);
 
 		if (before.StartDate != after.StartDate || before.EndDate != after.EndDate)
 		{
@@ -150,6 +154,138 @@ public sealed class AnalysisService(AppDbContext db)
 		}
 
 		return result;
+	}
+
+	public async Task<IReadOnlyList<AnalysisMessageDto>> AnalyzeCurrentTaskAsync(Guid projectId, Guid taskId, CancellationToken ct)
+	{
+		var task = await db.Tasks.AsNoTracking().SingleAsync(x => x.Id == taskId && x.ProjectId == projectId, ct);
+		var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == projectId, ct);
+		var result = new List<AnalysisMessageDto>();
+
+		AddOverdueWarning(result, task);
+
+		if (task.StartDate < project.StartDate || task.EndDate > project.EndDate)
+		{
+			result.Add(new AnalysisMessageDto(
+				AnalysisSeverity.Warning,
+				task.Id,
+				task.Name,
+				[task.Id],
+				[task.Name],
+				$"Задача выходит за границы проекта: {task.StartDate:yyyy-MM-dd} - {task.EndDate:yyyy-MM-dd}, проект: {project.StartDate:yyyy-MM-dd} - {project.EndDate:yyyy-MM-dd}.",
+				[new AnalysisActionDto("open-project", "Открыть проект")]));
+		}
+
+		var predecessors = await db.TaskDependencies
+			.Where(x => x.SuccessorTaskId == task.Id)
+			.Join(db.Tasks, x => x.PredecessorTaskId, x => x.Id, (_, t) => t)
+			.AsNoTracking()
+			.ToListAsync(ct);
+
+		var successors = await db.TaskDependencies
+			.Where(x => x.PredecessorTaskId == task.Id)
+			.Join(db.Tasks, x => x.SuccessorTaskId, x => x.Id, (_, t) => t)
+			.AsNoTracking()
+			.ToListAsync(ct);
+
+		foreach (var predecessor in predecessors)
+		{
+			if (DependencyScheduleRules.HasDateConflict(predecessor.EndDate, task.StartDate))
+			{
+				result.Add(new AnalysisMessageDto(
+					AnalysisSeverity.Warning,
+					task.Id,
+					task.Name,
+					[predecessor.Id],
+					[predecessor.Name],
+					$"Задача {task.Name} начинается {task.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {predecessor.Name} ({predecessor.EndDate:yyyy-MM-dd}). Между задачами есть конфликт дат.",
+					[new AnalysisActionDto("open-task", "Открыть предшественника", predecessor.Id), new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", task.Id)]));
+			}
+		}
+
+		foreach (var successor in successors)
+		{
+			if (DependencyScheduleRules.HasDateConflict(task.EndDate, successor.StartDate))
+			{
+				result.Add(new AnalysisMessageDto(
+					AnalysisSeverity.Warning,
+					task.Id,
+					task.Name,
+					[successor.Id],
+					[successor.Name],
+					$"Последующая задача {successor.Name} начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {task.EndDate:yyyy-MM-dd}.",
+					[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)]));
+			}
+		}
+
+		if (task.Status == ProjectTaskStatus.InProgress)
+		{
+			var unfinishedPredecessors = predecessors.Where(x => x.Status != ProjectTaskStatus.Completed).ToList();
+			if (unfinishedPredecessors.Count > 0)
+			{
+				result.Add(new AnalysisMessageDto(
+					AnalysisSeverity.Warning,
+					task.Id,
+					task.Name,
+					unfinishedPredecessors.Select(x => x.Id).ToList(),
+					unfinishedPredecessors.Select(x => x.Name).ToList(),
+					"У задачи есть незавершённые предшественники.",
+					unfinishedPredecessors.Select(x => new AnalysisActionDto("open-task", "Открыть задачу", x.Id)).ToList()));
+			}
+		}
+
+		if (task.Status == ProjectTaskStatus.Delayed)
+		{
+			var unfinishedSuccessors = successors.Where(x => x.Status != ProjectTaskStatus.Completed).ToList();
+			if (unfinishedSuccessors.Count > 0)
+			{
+				result.Add(new AnalysisMessageDto(
+					AnalysisSeverity.Warning,
+					task.Id,
+					task.Name,
+					unfinishedSuccessors.Select(x => x.Id).ToList(),
+					unfinishedSuccessors.Select(x => x.Name).ToList(),
+					"Задача отмечена как задерживающаяся. Это создаёт риск для незавершённых последующих задач: для задач «Не в работе» возможен сдвиг даты начала, для задач «В работе» требуется ручная оценка.",
+					unfinishedSuccessors.Select(x => new AnalysisActionDto("open-task", "Открыть задачу", x.Id)).ToList()));
+			}
+		}
+
+		if (task.Status == ProjectTaskStatus.Completed)
+		{
+			foreach (var successor in successors)
+			{
+				var hasUnfinishedPredecessors = await HasUnfinishedPredecessorsAsync(successor.Id, task.Id, ct);
+				if (!hasUnfinishedPredecessors)
+				{
+					var text = successor.StartDate <= Today
+						? $"Все предшественники задачи {successor.Name} завершены. Её можно начинать."
+						: $"Все предшественники задачи {successor.Name} завершены. Запланированная дата начала — {successor.StartDate:yyyy-MM-dd}; работу потенциально можно начать раньше.";
+					result.Add(new AnalysisMessageDto(AnalysisSeverity.Info, task.Id, task.Name, [successor.Id], [successor.Name], text,
+						[new AnalysisActionDto("open-task", "Открыть задачу", successor.Id)]));
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+
+	public static bool IsOverdue(ProjectTask task, DateOnly today) =>
+		task.Status != ProjectTaskStatus.Completed && task.EndDate < today;
+
+	private static void AddOverdueWarning(List<AnalysisMessageDto> result, ProjectTask task)
+	{
+		if (!IsOverdue(task, Today)) return;
+
+		result.Add(new AnalysisMessageDto(
+			AnalysisSeverity.Warning,
+			task.Id,
+			task.Name,
+			[task.Id],
+			[task.Name],
+			$"Задача просрочена: плановая дата окончания {task.EndDate:yyyy-MM-dd}, текущая дата {Today:yyyy-MM-dd}. Задача не завершена и требует внимания.",
+			[new AnalysisActionDto("open-task", "Открыть задачу", task.Id)]));
 	}
 
 	public static bool IsCompleted(ProjectTaskStatus status) => status == ProjectTaskStatus.Completed;

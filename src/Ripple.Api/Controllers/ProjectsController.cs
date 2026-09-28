@@ -155,15 +155,18 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 				x.SuccessorTask.Name))
 			.ToListAsync(ct);
 
+		var today = DateOnly.FromDateTime(DateTime.UtcNow);
 		var warnings = tasks
-			.Where(x => x.StartDate < project.StartDate || x.EndDate > project.EndDate)
+			.Where(x => x.StartDate < project.StartDate || x.EndDate > project.EndDate || (x.Status != ProjectTaskStatus.Completed.ToString() && x.EndDate < today))
 			.Select(x => new AnalysisMessageDto(
 				AnalysisSeverity.Warning,
 				x.Id,
 				x.Name,
 				[x.Id],
 				[x.Name],
-				$"Задача выходит за границы проекта: {x.StartDate:yyyy-MM-dd} - {x.EndDate:yyyy-MM-dd}, проект: {project.StartDate:yyyy-MM-dd} - {project.EndDate:yyyy-MM-dd}.",
+				(x.Status != ProjectTaskStatus.Completed.ToString() && x.EndDate < today)
+					? $"Задача просрочена: плановая дата окончания {x.EndDate:yyyy-MM-dd}, текущая дата {today:yyyy-MM-dd}."
+					: $"Задача выходит за границы проекта: {x.StartDate:yyyy-MM-dd} - {x.EndDate:yyyy-MM-dd}, проект: {project.StartDate:yyyy-MM-dd} - {project.EndDate:yyyy-MM-dd}.",
 				[new AnalysisActionDto("open-task", "Открыть задачу", x.Id)]))
 			.ToList();
 

@@ -151,48 +151,7 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 	public async Task<ActionResult<IReadOnlyList<AnalysisMessageDto>>> Analyze(Guid projectId, Guid taskId, CancellationToken ct)
 	{
 		await EnsureProjectAsync(projectId, ct);
-		var task = await LoadTaskAsync(projectId, taskId, ct);
-		var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == projectId, ct);
-		var messages = new List<AnalysisMessageDto>();
-
-		if (task.StartDate < project.StartDate || task.EndDate > project.EndDate)
-		{
-			messages.Add(new AnalysisMessageDto(AnalysisSeverity.Warning, task.Id, task.Name, [task.Id], [task.Name], 
-				"Задача выходит за границы проекта.", [new AnalysisActionDto("open-project", "Открыть проект")]));
-		}
-
-		var successors = await db.TaskDependencies
-			.Where(x => x.PredecessorTaskId == task.Id)
-			.Join(db.Tasks, x => x.SuccessorTaskId, x => x.Id, (_, t) => t)
-			.AsNoTracking()
-			.ToListAsync(ct);
-
-		foreach (var successor in successors)
-		{
-			if (DependencyScheduleRules.HasDateConflict(task.EndDate, successor.StartDate))
-			{
-				messages.Add(new AnalysisMessageDto(AnalysisSeverity.Warning, task.Id, task.Name, [successor.Id], [successor.Name],
-					$"Последующая задача начинается {successor.StartDate:yyyy-MM-dd}, раньше либо в тот же день, что и окончание предшественника {task.EndDate:yyyy-MM-dd}.",
-					[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", successor.Id)]));
-			}
-		}
-
-		if (task.Status == ProjectTaskStatus.InProgress)
-		{
-			var predecessors = await db.TaskDependencies
-				.Where(x => x.SuccessorTaskId == task.Id)
-				.Join(db.Tasks, x => x.PredecessorTaskId, x => x.Id, (_, t) => t)
-				.AsNoTracking()
-				.ToListAsync(ct);
-			var unfinished = predecessors.Where(x => x.Status != ProjectTaskStatus.Completed).ToList();
-			if (unfinished.Count > 0)
-			{
-				messages.Add(new AnalysisMessageDto(AnalysisSeverity.Warning, task.Id, task.Name, unfinished.Select(x => x.Id).ToList(), unfinished.Select(x => x.Name).ToList(),
-					"У задачи есть незавершённые предшественники.", unfinished.Select(x => new AnalysisActionDto("open-task", "Открыть задачу", x.Id)).ToList()));
-			}
-		}
-
-		return Ok(messages);
+		return Ok(await analysis.AnalyzeCurrentTaskAsync(projectId, taskId, ct));
 	}
 
 	[HttpPost("{taskId:guid}/shift-preview")]

@@ -163,6 +163,17 @@ public sealed class ShiftService(AppDbContext db, DependencyGraphService graph, 
 				await realtime.PublishAsync(projectId, "project", "updated", projectId, new { endDate = preview.ProposedProjectEndDate }, ct);
 
 			var refreshed = await BuildPreviewAsync(projectId, rootTaskId, ct);
+			if (!projectEndChanged)
+			{
+				refreshed = refreshed with
+				{
+					ProposedProjectEndDate = refreshed.CurrentProjectEndDate,
+					ProjectEndIncreaseCalendarDays = 0,
+					Analysis = refreshed.Analysis
+						.Where(x => x.Actions.All(a => a.Code != "confirm-project-end"))
+						.ToList()
+				};
+			}
 			return new ShiftConfirmationResponse(refreshed, projectEndChanged);
 		});
 	}
