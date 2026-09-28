@@ -57,22 +57,96 @@ public sealed class ChangeHistoryService(AppDbContext db)
 
 	public async Task<ChangeHistoryDto?> UndoAsync(Guid projectId, Guid historyId, CancellationToken ct)
 	{
-		var operation = await db.ChangeOperations
-			.Include(x => x.Items)
-			.SingleOrDefaultAsync(x => x.Id == historyId && x.ProjectId == projectId, ct);
-		if (operation is null) return null;
-		if (operation.UndoneAt is not null) return new ChangeHistoryDto(operation.Id, operation.OperationType, operation.Description, operation.CreatedAt, false);
-
 		var strategy = db.Database.CreateExecutionStrategy();
+
 		return await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(ct);
+
+			var operation = await db.ChangeOperations
+				.Include(x => x.Items)
+				.SingleOrDefaultAsync(x => x.Id == historyId && x.ProjectId == projectId, ct);
+			if (operation is null)
+				return null;
+			if (operation.UndoneAt is not null)
+				return new ChangeHistoryDto(operation.Id, operation.OperationType, operation.Description, operation.CreatedAt, false);
+
 			await ApplyUndoAsync(operation, ct);
+			await db.SaveChangesAsync(ct);
+
+			// Убедиться, что все изменения реально записаны до фиксации транзакции.
+			await VerifyUndoAsync(operation, ct);
+
 			operation.UndoneAt = DateTimeOffset.UtcNow;
 			await db.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
+
 			return new ChangeHistoryDto(operation.Id, operation.OperationType, operation.Description, operation.CreatedAt, false);
 		});
+	}
+
+	private async Task VerifyUndoAsync(ChangeOperation operation, CancellationToken ct)
+	{
+		foreach (var item in operation.Items)
+		{
+			if (item.EntityType == "task_dependency")
+			{
+				var snapshot = item.BeforeJson ?? item.AfterJson;
+				if (snapshot is null) continue;
+				var dependency = ReadDependency(snapshot);
+				var exists = await db.TaskDependencies.AnyAsync(x =>
+					x.PredecessorTaskId == dependency.PredecessorTaskId &&
+					x.SuccessorTaskId == dependency.SuccessorTaskId, ct);
+				var shouldExist = item.BeforeJson is not null;
+				if (exists != shouldExist)
+					throw new InvalidOperationException($"History rollback verification failed for dependency {dependency.PredecessorTaskId} -> {dependency.SuccessorTaskId}.");
+				continue;
+			}
+
+			if (item.EntityType == "project")
+			{
+				var snapshot = item.BeforeJson ?? item.AfterJson;
+				if (snapshot is null) continue;
+				var expected = JsonSerializer.Deserialize<ProjectSnapshot>(snapshot, JsonOptions)!;
+				var actual = await db.Projects.AsNoTracking().SingleOrDefaultAsync(x => x.Id == expected.Id, ct);
+				if (item.BeforeJson is null)
+				{
+					if (actual is not null) throw new InvalidOperationException($"History rollback verification failed for project {expected.Id}.");
+				}
+				else if (actual is null || Snapshot(actual) != expected)
+					throw new InvalidOperationException($"History rollback verification failed for project {expected.Id}.");
+				continue;
+			}
+
+			if (item.EntityType == "task")
+			{
+				var snapshot = item.BeforeJson ?? item.AfterJson;
+				if (snapshot is null) continue;
+				var expected = JsonSerializer.Deserialize<TaskSnapshot>(snapshot, JsonOptions)!;
+				var actual = await db.Tasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == expected.Id, ct);
+				if (item.BeforeJson is null)
+				{
+					if (actual is not null) throw new InvalidOperationException($"History rollback verification failed for task {expected.Id}.");
+				}
+				else if (actual is null || Snapshot(actual) != expected)
+					throw new InvalidOperationException($"History rollback verification failed for task {expected.Id}.");
+				continue;
+			}
+
+			if (item.EntityType == "employee")
+			{
+				var snapshot = item.BeforeJson ?? item.AfterJson;
+				if (snapshot is null) continue;
+				var expected = JsonSerializer.Deserialize<EmployeeSnapshot>(snapshot, JsonOptions)!;
+				var actual = await db.Employees.AsNoTracking().SingleOrDefaultAsync(x => x.Id == expected.Id, ct);
+				if (item.BeforeJson is null)
+				{
+					if (actual is not null) throw new InvalidOperationException($"History rollback verification failed for employee {expected.Id}.");
+				}
+				else if (actual is null || Snapshot(actual) != expected)
+					throw new InvalidOperationException($"History rollback verification failed for employee {expected.Id}.");
+			}
+		}
 	}
 
 	private async Task ApplyUndoAsync(ChangeOperation operation, CancellationToken ct)
