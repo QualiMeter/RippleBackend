@@ -9,7 +9,7 @@ namespace Ripple.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects")]
-public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime, ProjectReconcileService reconcile) : ControllerBase
+public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime, ProjectReconcileService reconcile, ProjectDiagnosticsService diagnostics) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<ProjectListItemDto>>> GetAll(CancellationToken ct)
@@ -94,6 +94,16 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 		var updatedDetails = await BuildDetailsAsync(project.Id, ct);
 		await realtime.PublishAsync(project.Id, "project", "updated", project.Id, updatedDetails, ct);
 		return Ok(updatedDetails);
+	}
+
+	[HttpGet("{id:guid}/diagnostics")]
+	public async Task<ActionResult<ProjectDiagnosticsDto>> Diagnostics(Guid id, CancellationToken ct)
+	{
+		var userId = await currentUser.GetUserIdAsync(ct);
+		var exists = await db.Projects.AnyAsync(x => x.Id == id && x.CreatorId == userId, ct);
+		if (!exists) return NotFound();
+
+		return Ok(await diagnostics.GetAsync(id, ct));
 	}
 
 	[HttpPost("{id:guid}/reconcile")]

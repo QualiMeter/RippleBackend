@@ -97,6 +97,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
 builder.Services.AddScoped<AnalysisService>();
 builder.Services.AddScoped<ProjectReconcileService>();
+builder.Services.AddScoped<ProjectDiagnosticsService>();
 builder.Services.AddScoped<DependencyGraphService>();
 builder.Services.AddScoped<ShiftService>();
 
