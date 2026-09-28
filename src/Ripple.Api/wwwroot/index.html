@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+	<title>Ripple — Live Project Inspector</title>
+	<link rel="stylesheet" href="/ui.css">
+</head>
+<body>
+	<header>
+		<div>
+			<h1>Ripple Live Inspector</h1>
+			<div class="muted">Внутренний UI для наблюдения за проектом и SignalR</div>
+		</div>
+		<div class="connection"><span id="dot"></span><span id="connectionText">offline</span></div>
+	</header>
+
+	<main>
+		<section class="toolbar panel">
+			<label>Проект <select id="projectSelect"></select></label>
+			<button id="refreshBtn">Обновить</button>
+			<button id="reconcileBtn">Reconcile</button>
+			<button id="diagnosticsBtn">Diagnostics JSON</button><button id="inspectorBtn" class="inspector-open">HTTP Inspector</button>
+		</section>
+
+		<section class="stats" id="stats"></section>
+		<section class="panel" id="problems"></section>
+		<section class="panel">
+			<div class="section-head"><h2>Задачи</h2><button id="newTaskBtn">Новая задача</button></div>
+			<div id="tasks" class="task-grid"></div>
+		</section>
+		<section class="panel">
+			<div class="section-head"><h2>Зависимости</h2><button id="addDependencyBtn">Добавить</button></div>
+			<div id="dependencies"></div>
+		</section>
+		<section class="panel">
+			<div class="section-head"><h2>История</h2><span class="muted">Undo доступен для любой версии</span></div>
+			<div id="history"></div>
+		</section>
+		<section class="panel">
+			<div class="section-head"><h2>Realtime события</h2><button id="clearLogBtn">Очистить</button></div>
+			<pre id="eventLog" class="event-log"></pre>
+		</section>
+	</main>
+
+	<dialog id="taskDialog">
+		<form method="dialog" id="taskForm">
+			<h2 id="taskDialogTitle">Новая задача</h2>
+			<input type="hidden" id="taskId">
+			<label>Название<input id="taskName" required></label>
+			<div class="two"><label>Начало<input id="taskStart" type="date" required></label><label>Конец<input id="taskEnd" type="date" required></label></div>
+			<label>Ответственный<select id="taskAssignee" required></select></label>
+			<label>Статус<select id="taskStatus"><option value="NotStarted">Не начата</option><option value="InProgress">В работе</option><option value="Completed">Завершена</option><option value="Delayed">Просрочена</option></select></label>
+			<div class="actions"><button value="cancel">Отмена</button><button id="saveTaskBtn" value="default">Сохранить</button></div>
+		</form>
+	</dialog>
+
+	<dialog id="dependencyDialog">
+		<form method="dialog" id="dependencyForm">
+			<h2>Новая зависимость</h2>
+			<label>Предшественник<select id="dependencyPredecessor"></select></label>
+			<label>Последователь<select id="dependencySuccessor"></select></label>
+			<div class="actions"><button value="cancel">Отмена</button><button id="saveDependencyBtn" value="default">Добавить</button></div>
+		</form>
+	</dialog>
+
+	<dialog id="inspectorDialog" class="inspector-dialog">
+		<div class="section-head"><div><h2>HTTP Inspector</h2><div class="muted">Полный REST request/response: метод, URL, заголовки, тело, статус, ответ и время.</div></div><button onclick="$('inspectorDialog').close()">Закрыть</button></div>
+		<div class="inspector-grid">
+			<div class="inspector-list">
+				<div class="section-head"><b>REST запросы</b><button id="clearRequestsBtn">Очистить</button></div>
+				<div id="requestList"></div>
+			</div>
+			<div class="inspector-details" id="requestDetails"><div class="muted">Выберите запрос.</div></div>
+		</div>
+		<div class="section-head action-log-head"><div><h3>Подробный журнал действий</h3><div class="muted">UI-действия, SignalR, refresh, формы, reconcile, shift, undo и ошибки.</div></div><button id="copyActionsBtn">Копировать журнал</button></div>
+		<pre id="actionLog" class="action-log"></pre>
+		<div id="copyToast" class="copy-toast"></div>
+	</dialog>
+
+	<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@9.0.10/dist/browser/signalr.min.js"></script>
+	<script src="/ui.js"></script>
+</body>
+</html>
