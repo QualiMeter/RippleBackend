@@ -89,7 +89,7 @@ public sealed class DevUiPasswordMiddleware(RequestDelegate next, IConfiguration
 	private static bool IsDevUiRequest(PathString path) =>
 		path == "/" || path.StartsWithSegments("/ui.js") || path.StartsWithSegments("/ui.css") || path.StartsWithSegments("/dev-ui");
 
-	private static string LoginPage(string? error = null) => $"""
+	private static string LoginPage(string? error = null) => $$"""
 		<!doctype html>
 		<html lang="ru">
 		<head>
@@ -97,7 +97,7 @@ public sealed class DevUiPasswordMiddleware(RequestDelegate next, IConfiguration
 			<meta name="viewport" content="width=device-width,initial-scale=1">
 			<title>Ripple Dev UI — вход</title>
 			<style>
-				*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#101318;color:#f4f5f7;font:16px system-ui,sans-serif}}form{{width:min(420px,calc(100vw - 32px));padding:28px;border:1px solid #303640;border-radius:16px;background:#181c23;box-shadow:0 20px 60px #0008}}h1{{margin:0 0 8px}}p{{color:#9ca4b2}}label{{display:block;margin:20px 0 8px}}input{{width:100%;padding:12px;border-radius:10px;border:1px solid #3a414d;background:#0f1217;color:#fff;font-size:16px}}button{{width:100%;margin-top:18px;padding:12px;border:0;border-radius:10px;background:#fff;color:#111;font-weight:700;cursor:pointer}}.error{{margin-top:14px;color:#ff8d8d}}
+				*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101318;color:#f4f5f7;font:16px system-ui,sans-serif}form{width:min(420px,calc(100vw - 32px));padding:28px;border:1px solid #303640;border-radius:16px;background:#181c23;box-shadow:0 20px 60px #0008}h1{margin:0 0 8px}p{color:#9ca4b2}label{display:block;margin:20px 0 8px}input{width:100%;padding:12px;border-radius:10px;border:1px solid #3a414d;background:#0f1217;color:#fff;font-size:16px}button{width:100%;margin-top:18px;padding:12px;border:0;border-radius:10px;background:#fff;color:#111;font-weight:700;cursor:pointer}.error{margin-top:14px;color:#ff8d8d}
 			</style>
 		</head>
 		<body>
@@ -107,7 +107,7 @@ public sealed class DevUiPasswordMiddleware(RequestDelegate next, IConfiguration
 				<label for="password">Пароль</label>
 				<input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
 				<button type="submit">Войти</button>
-				{(string.IsNullOrEmpty(error) ? "" : $"<div class=\"error\">{System.Net.WebUtility.HtmlEncode(error)}</div>")}
+				{{(string.IsNullOrEmpty(error) ? "" : $"<div class=\"error\">{System.Net.WebUtility.HtmlEncode(error)}</div>")}}
 			</form>
 		</body>
 		</html>
