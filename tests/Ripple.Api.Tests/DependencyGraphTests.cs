@@ -32,6 +32,30 @@ public sealed class DependencyGraphTests
 	}
 
 	[Fact]
+	public void UnfinishedTaskPastEndDateIsOverdue()
+	{
+		var task = new ProjectTask
+		{
+			EndDate = new DateOnly(2026, 9, 27),
+			Status = ProjectTaskStatus.InProgress
+		};
+
+		Assert.True(AnalysisService.IsOverdue(task, new DateOnly(2026, 9, 28)));
+	}
+
+	[Fact]
+	public void CompletedTaskPastEndDateIsNotOverdue()
+	{
+		var task = new ProjectTask
+		{
+			EndDate = new DateOnly(2026, 9, 27),
+			Status = ProjectTaskStatus.Completed
+		};
+
+		Assert.False(AnalysisService.IsOverdue(task, new DateOnly(2026, 9, 28)));
+	}
+
+	[Fact]
 	public void CompletedStatusIsDistinctFromDelayedStatus()
 	{
 		Assert.NotEqual(ProjectTaskStatus.Completed, ProjectTaskStatus.Delayed);
