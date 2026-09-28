@@ -7,6 +7,43 @@ namespace Ripple.Api.Services;
 
 public sealed class AnalysisService(AppDbContext db)
 {
+	public async Task<IReadOnlyList<AnalysisMessageDto>> AnalyzeProjectAsync(Guid projectId, CancellationToken ct)
+	{
+		var project = await db.Projects.AsNoTracking().SingleAsync(x => x.Id == projectId, ct);
+		var tasks = await db.Tasks.Where(x => x.ProjectId == projectId).AsNoTracking().ToListAsync(ct);
+		var result = new List<AnalysisMessageDto>();
+
+		foreach (var task in tasks)
+		{
+			AddOverdueWarning(result, task);
+			if (task.StartDate < project.StartDate || task.EndDate > project.EndDate)
+			{
+				result.Add(new AnalysisMessageDto(
+					AnalysisSeverity.Warning, task.Id, task.Name, [task.Id], [task.Name],
+					$"Задача выходит за границы проекта: {task.StartDate:yyyy-MM-dd} - {task.EndDate:yyyy-MM-dd}, проект: {project.StartDate:yyyy-MM-dd} - {project.EndDate:yyyy-MM-dd}.",
+					[new AnalysisActionDto("open-task", "Открыть задачу", task.Id)]));
+			}
+		}
+
+		var dependencies = await db.TaskDependencies
+			.Where(x => x.PredecessorTask.ProjectId == projectId)
+			.AsNoTracking()
+			.Select(x => new { Predecessor = x.PredecessorTask, Successor = x.SuccessorTask })
+			.ToListAsync(ct);
+
+		foreach (var link in dependencies)
+		{
+			if (!DependencyScheduleRules.HasDateConflict(link.Predecessor.EndDate, link.Successor.StartDate)) continue;
+			result.Add(new AnalysisMessageDto(
+				AnalysisSeverity.Warning, link.Successor.Id, link.Successor.Name,
+				[link.Predecessor.Id, link.Successor.Id], [link.Predecessor.Name, link.Successor.Name],
+				$"Конфликт дат: задача {link.Successor.Name} начинается {link.Successor.StartDate:yyyy-MM-dd}, а предшественник {link.Predecessor.Name} заканчивается {link.Predecessor.EndDate:yyyy-MM-dd}.",
+				[new AnalysisActionDto("shift-preview", "Рассчитать сдвиг", link.Successor.Id)]));
+		}
+
+		return result;
+	}
+
 	public async Task<IReadOnlyList<AnalysisMessageDto>> AnalyzeProjectBoundaryAsync(Project project, CancellationToken ct)
 	{
 		var tasks = await db.Tasks.Where(x => x.ProjectId == project.Id).AsNoTracking().ToListAsync(ct);
