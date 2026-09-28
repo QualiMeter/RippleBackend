@@ -125,6 +125,12 @@ public sealed class ChangeHistoryService(AppDbContext db)
 			else
 				await RestoreEntityAsync(item, item.AfterJson, ct);
 		}
+
+		// Persist one history operation at a time. This prevents an entity that was
+		// deleted/recreated while replaying the version from remaining in the
+		// identity map when the next operation is applied.
+		await db.SaveChangesAsync(ct);
+		db.ChangeTracker.Clear();
 	}
 
 	private static int ForwardOrder(string type) => type switch
@@ -189,24 +195,87 @@ public sealed class ChangeHistoryService(AppDbContext db)
 			case "project":
 				var project = JsonSerializer.Deserialize<ProjectSnapshot>(json, JsonOptions)!;
 				var existingProject = await db.Projects.SingleOrDefaultAsync(x => x.Id == project.Id, ct);
-				if (existingProject is null) db.Projects.Add(project.ToEntity()); else project.Apply(existingProject);
+				if (existingProject is null)
+				{
+					DetachTracked<Project>(project.Id);
+					db.Projects.Add(project.ToEntity());
+				}
+				else
+				{
+					EnsureRestorable(existingProject);
+					project.Apply(existingProject);
+				}
 				break;
+
 			case "employee":
 				var employee = JsonSerializer.Deserialize<EmployeeSnapshot>(json, JsonOptions)!;
 				var existingEmployee = await db.Employees.SingleOrDefaultAsync(x => x.Id == employee.Id, ct);
-				if (existingEmployee is null) db.Employees.Add(employee.ToEntity()); else employee.Apply(existingEmployee);
+				if (existingEmployee is null)
+				{
+					DetachTracked<Employee>(employee.Id);
+					db.Employees.Add(employee.ToEntity());
+				}
+				else
+				{
+					EnsureRestorable(existingEmployee);
+					employee.Apply(existingEmployee);
+				}
 				break;
+
 			case "task":
 				var task = JsonSerializer.Deserialize<TaskSnapshot>(json, JsonOptions)!;
 				var existingTask = await db.Tasks.SingleOrDefaultAsync(x => x.Id == task.Id, ct);
-				if (existingTask is null) db.Tasks.Add(task.ToEntity()); else task.Apply(existingTask);
+				if (existingTask is null)
+				{
+					DetachTracked<ProjectTask>(task.Id);
+					db.Tasks.Add(task.ToEntity());
+				}
+				else
+				{
+					EnsureRestorable(existingTask);
+					task.Apply(existingTask);
+				}
 				break;
+
 			case "task_dependency":
 				var dependency = JsonSerializer.Deserialize<DependencySnapshot>(json, JsonOptions)!;
-				if (!await db.TaskDependencies.AnyAsync(x => x.PredecessorTaskId == dependency.PredecessorTaskId && x.SuccessorTaskId == dependency.SuccessorTaskId, ct))
+				var existingDependency = await db.TaskDependencies.SingleOrDefaultAsync(
+					x => x.PredecessorTaskId == dependency.PredecessorTaskId && x.SuccessorTaskId == dependency.SuccessorTaskId, ct);
+				if (existingDependency is null)
+				{
+					db.ChangeTracker.Entries<TaskDependency>()
+						.Where(x => x.Entity.PredecessorTaskId == dependency.PredecessorTaskId && x.Entity.SuccessorTaskId == dependency.SuccessorTaskId)
+						.ToList()
+						.ForEach(x => x.State = EntityState.Detached);
 					db.TaskDependencies.Add(dependency.ToEntity());
+				}
+				else
+				{
+					EnsureRestorable(existingDependency);
+				}
 				break;
 		}
+	}
+
+	private void DetachTracked<TEntity>(Guid id) where TEntity : class
+	{
+		foreach (var entry in db.ChangeTracker.Entries<TEntity>().Where(x => GetEntityId(x.Entity) == id).ToList())
+			entry.State = EntityState.Detached;
+	}
+
+	private static Guid GetEntityId<TEntity>(TEntity entity) where TEntity : class => entity switch
+	{
+		Project x => x.Id,
+		Employee x => x.Id,
+		ProjectTask x => x.Id,
+		_ => Guid.Empty
+	};
+
+	private void EnsureRestorable<TEntity>(TEntity entity) where TEntity : class
+	{
+		var entry = db.Entry(entity);
+		if (entry.State == EntityState.Deleted)
+			entry.State = EntityState.Unchanged;
 	}
 
 	private static int RestoreOrder(string type) => type switch
