@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-const state={projectId:null,projects:[],project:null,diagnostics:null,hub:null,requestLog:[],actionLog:[]};
+const state={userId:null,users:[],projectId:null,projects:[],project:null,diagnostics:null,hub:null,requestLog:[],actionLog:[]};
 const statusNames={NotStarted:'Не начата',InProgress:'В работе',Completed:'Завершена',Delayed:'Просрочена'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const jsonPretty=v=>{if(v===undefined||v===null)return '';if(typeof v==='string'){try{return JSON.stringify(JSON.parse(v),null,2)}catch{return v}}try{return JSON.stringify(v,null,2)}catch{return String(v)}};
@@ -11,6 +11,7 @@ async function api(url,options={}){
 	const started=performance.now();
 	const method=(options.method||'GET').toUpperCase();
 	const headers={'Content-Type':'application/json',...(options.headers||{})};
+	if(state.userId)headers['X-User-Id']=state.userId;
 	const requestBody=options.body??null;
 	const request={method,url,headers:{...headers},body:requestBody};
 	let response=null,error=null;
@@ -31,7 +32,10 @@ async function api(url,options={}){
 }
 function log(type,data){const line=`[${new Date().toLocaleTimeString()}] ${type}\n${JSON.stringify(data,null,2)}\n\n`;const el=$('eventLog');el.textContent=(line+el.textContent).slice(0,50000)}
 function setConnection(ok,text){$('connectionText').textContent=text;$('dot').parentElement.classList.toggle('online',ok)}
-async function loadProjects(){addAction('Загрузка проектов');state.projects=await api('/api/v1/projects');$('projectSelect').innerHTML=state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(state.projectId&&state.projects.some(p=>p.id===state.projectId))$('projectSelect').value=state.projectId;else state.projectId=state.projects[0]?.id||null;if(state.projectId)await loadProject()}
+async function loadUsers(){addAction('Загрузка пользователей');state.users=await api('/api/v1/users');$('userSelect').innerHTML=state.users.map(u=>`<option value="${u.id}">${esc(u.name)} — ${esc(u.email)}</option>`).join('');if(!state.userId||!state.users.some(u=>u.id===state.userId))state.userId=state.users[0]?.id||null;if(state.userId)$('userSelect').value=state.userId}
+function showStartupError(error){const el=$('startupError');el.hidden=false;el.innerHTML=`<b>Dev UI не смог загрузить данные</b><div>${esc(error?.message||error)}</div><div class="small muted">Откройте HTTP Inspector: там будет полный ответ API.</div><button onclick="location.reload()">Повторить</button>`}
+async function loadProjects(){addAction('Загрузка проектов',{userId:state.userId});state.projects=await api('/api/v1/projects');$('projectSelect').innerHTML=state.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(state.projectId&&state.projects.some(p=>p.id===state.projectId))$('projectSelect').value=state.projectId;else state.projectId=state.projects[0]?.id||null;if(state.projectId)await loadProject();else {renderProjectListEmpty();addAction('У пользователя нет проектов',{userId:state.userId})}}
+function renderProjectListEmpty(){$('projectSelect').innerHTML='<option value="">— проектов нет —</option>';$('stats').innerHTML='';$('problems').innerHTML='<div class="info">У выбранного пользователя нет проектов. Создайте проект через REST API или выберите другого пользователя.</div>';}
 async function loadProject(){if(!state.projectId)return;addAction('Загрузка проекта',{projectId:state.projectId});state.project=await api(`/api/v1/projects/${state.projectId}`);renderProject();await connectHub()}
 function renderProject(){const p=state.project;if(!p)return;$('stats').innerHTML=[['Задачи',p.tasks.length],['Сотрудники',p.employees.length],['Зависимости',p.dependencies.length],['Проблемы',p.currentProblems?.length??0],['Границы',p.boundaryWarnings?.length??0]].map(x=>`<div class="stat"><span class="muted">${x[0]}</span><b>${x[1]}</b></div>`).join('');renderProblems(p.currentProblems||[]);renderTasks(p.tasks);renderDependencies(p.dependencies);renderAssignees(p.employees)}
 function renderProblems(items){$('problems').innerHTML=`<div class="section-head"><h2>Текущие проблемы</h2><span class="muted">пересчитываются после изменений</span></div>`+(items.length?items.map(messageHtml).join(''):'<div class="info">Проблем не обнаружено.</div>')}
@@ -49,7 +53,8 @@ window.selectRequest=id=>{const x=state.requestLog.find(v=>v.id===id);if(!x)retu
 window.copyRequest=async id=>{const x=state.requestLog.find(v=>v.id===id);if(!x)return;await navigator.clipboard.writeText(jsonPretty(x));addAction('Скопирован HTTP-запрос',{id,method:x.request.method,url:x.request.url});$('copyToast').textContent='Скопировано';setTimeout(()=>$('copyToast').textContent='',1200)};
 function renderActionLog(){const el=$('actionLog');el.textContent=state.actionLog.map(x=>`[${new Date(x.at).toLocaleTimeString()}] ${x.action}\n${jsonPretty(x.data)}\n`).join('\n').slice(0,50000)}
 async function copyActionLog(){await navigator.clipboard.writeText(state.actionLog.map(x=>`[${x.at}] ${x.action}\n${jsonPretty(x.data)}`).join('\n\n'));addAction('Скопирован журнал действий')}
-$('projectSelect').onchange=async e=>{addAction('Смена проекта',{projectId:e.target.value});state.projectId=e.target.value;await loadProject();await loadDiagnostics()};
+$('userSelect').onchange=async e=>{addAction('Смена пользователя',{userId:e.target.value});state.userId=e.target.value;state.projectId=null;try{await loadProjects();if(state.projectId)await loadDiagnostics()}catch(err){showStartupError(err);addAction('Ошибка загрузки проектов',{message:err.message})}};
+$('projectSelect').onchange=async e=>{if(!e.target.value)return;addAction('Смена проекта',{projectId:e.target.value});state.projectId=e.target.value;try{await loadProject();await loadDiagnostics()}catch(err){showStartupError(err);addAction('Ошибка загрузки проекта',{message:err.message})}};
 $('refreshBtn').onclick=async()=>{addAction('Нажата кнопка Обновить');await loadProjectDataOnly();await loadDiagnostics()};
 $('diagnosticsBtn').onclick=async()=>{await loadDiagnostics();openInspector()};
 $('clearLogBtn').onclick=()=>{addAction('Очищен realtime-журнал');$('eventLog').textContent=''};
@@ -67,4 +72,4 @@ window.undoHistory=async id=>{if(!confirm('Откатить эту операц�
 $('inspectorBtn').onclick=openInspector;
 $('clearRequestsBtn').onclick=()=>{state.requestLog=[];renderRequestList();addAction('Очищен HTTP-журнал')};
 $('copyActionsBtn').onclick=copyActionLog;
-(async()=>{try{addAction('UI запущен');await loadProjects();await loadDiagnostics()}catch(e){setConnection(false,'error');log('startup error',{message:e.message});addAction('Ошибка запуска',{message:e.message})}})();
+(async()=>{try{addAction('UI запущен');await loadUsers();await loadProjects();if(state.projectId)await loadDiagnostics()}catch(e){setConnection(false,'error');showStartupError(e);log('startup error',{message:e.message,name:e.name});addAction('Ошибка запуска',{message:e.message})}})();

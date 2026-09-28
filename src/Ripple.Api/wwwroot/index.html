@@ -17,12 +17,14 @@
 
 	<main>
 		<section class="toolbar panel">
+			<label>Пользователь <select id="userSelect"></select></label>
 			<label>Проект <select id="projectSelect"></select></label>
 			<button id="refreshBtn">Обновить</button>
 			<button id="reconcileBtn">Reconcile</button>
 			<button id="diagnosticsBtn">Diagnostics JSON</button><button id="inspectorBtn" class="inspector-open">HTTP Inspector</button>
 		</section>
 
+		<section id="startupError" class="panel error" hidden></section>
 		<section class="stats" id="stats"></section>
 		<section class="panel" id="problems"></section>
 		<section class="panel">

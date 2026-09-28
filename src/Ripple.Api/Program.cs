@@ -113,6 +113,7 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 });
 app.UseResponseCompression();
 app.UseDefaultFiles();
+app.UseMiddleware<DevUiPasswordMiddleware>();
 app.UseStaticFiles();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<ApiRequestLoggingMiddleware>();
