@@ -51,7 +51,7 @@ jobs:
       - name: Deploy
         run: |
           tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "sudo rm -rf /var/www/api/* && sudo tar -C /var/www/api -xf -"
+            "rm -rf /var/www/api/* && tar -C /var/www/api -xf -"
 
       - name: Start backend
         if: always()
