@@ -62,4 +62,4 @@ jobs:
       - name: Check backend
         run: |
           ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "whoami && id && sudo -n -l"
+            "sudo -n systemctl is-active ripple-api"
