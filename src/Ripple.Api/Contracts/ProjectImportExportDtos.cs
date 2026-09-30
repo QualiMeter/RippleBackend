@@ -1,3 +1,5 @@
+using Ripple.Api.Domain;
+
 namespace Ripple.Api.Contracts;
 
 public sealed record ProjectExportDto(
