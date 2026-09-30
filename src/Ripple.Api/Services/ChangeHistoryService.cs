@@ -5,7 +5,7 @@ using Ripple.Api.Domain;
 
 namespace Ripple.Api.Services;
 
-public sealed record ChangeHistoryDto(Guid Id, string OperationType, string Description, DateTimeOffset CreatedAt, bool CanUndo);
+public sealed record ChangeHistoryDto(Guid Id, string OperationType, string Description, DateTimeOffset CreatedAt, bool CanUndo, bool IsCurrent);
 public sealed record ChangeHistoryItemDto(string EntityType, Guid EntityId, string? BeforeJson, string? AfterJson);
 
 public sealed class ChangeHistoryService(AppDbContext db)
@@ -14,13 +14,17 @@ public sealed class ChangeHistoryService(AppDbContext db)
 
 	public ChangeOperation Begin(Guid projectId, string operationType, string description)
 	{
+		var now = DateTimeOffset.UtcNow;
 		return new ChangeOperation
 		{
 			Id = Guid.NewGuid(),
 			ProjectId = projectId,
 			OperationType = operationType,
 			Description = description,
-			CreatedAt = DateTimeOffset.UtcNow
+			CreatedAt = now,
+			// Existing column is used as a persistent marker of the version
+			// that represents the current project state. It does not disable undo.
+			UndoneAt = now
 		};
 	}
 
@@ -38,11 +42,29 @@ public sealed class ChangeHistoryService(AppDbContext db)
 
 	public async Task<IReadOnlyList<ChangeHistoryDto>> GetAsync(Guid projectId, CancellationToken ct)
 	{
-		return await db.ChangeOperations.AsNoTracking()
+		var operations = await db.ChangeOperations.AsNoTracking()
 			.Where(x => x.ProjectId == projectId)
 			.OrderByDescending(x => x.CreatedAt)
-			.Select(x => new ChangeHistoryDto(x.Id, x.OperationType, x.Description, x.CreatedAt, true))
 			.ToListAsync(ct);
+
+		var current = operations
+			.Where(x => x.UndoneAt.HasValue)
+			.OrderByDescending(x => x.UndoneAt)
+			.FirstOrDefault();
+
+		// Projects created before the current-version marker was introduced have
+		// no marker yet. Their newest history entry is the current version.
+		current ??= operations.FirstOrDefault();
+
+		return operations
+			.Select(x => new ChangeHistoryDto(
+				x.Id,
+				x.OperationType,
+				x.Description,
+				x.CreatedAt,
+				true,
+				x.Id == current?.Id))
+			.ToList();
 	}
 
 	public async Task<IReadOnlyList<ChangeHistoryItemDto>> GetItemsAsync(Guid operationId, CancellationToken ct)
@@ -83,6 +105,8 @@ public sealed class ChangeHistoryService(AppDbContext db)
 			for (var i = 0; i <= targetIndex; i++)
 				await ApplyForwardAsync(operations[i], ct);
 
+			target.UndoneAt = DateTimeOffset.UtcNow;
+			db.ChangeOperations.Update(target);
 			await db.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 
@@ -91,6 +115,7 @@ public sealed class ChangeHistoryService(AppDbContext db)
 				target.OperationType,
 				target.Description,
 				target.CreatedAt,
+				true,
 				true);
 		});
 	}

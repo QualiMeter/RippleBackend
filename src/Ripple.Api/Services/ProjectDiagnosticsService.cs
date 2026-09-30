@@ -84,6 +84,13 @@ public sealed class ProjectDiagnosticsService(AppDbContext db, AnalysisService a
 			.Where(x => x.ProjectId == projectId)
 			.OrderByDescending(x => x.CreatedAt)
 			.ToListAsync(ct);
+		var currentHistoryId = historyEntries
+			.Where(x => x.UndoneAt.HasValue)
+			.OrderByDescending(x => x.UndoneAt)
+			.Select(x => (Guid?)x.Id)
+			.FirstOrDefault()
+			?? historyEntries.Select(x => (Guid?)x.Id).FirstOrDefault();
+
 		foreach (var entry in historyEntries)
 		{
 			historyItems.Add(new ProjectDiagnosticsHistoryDto(
@@ -93,6 +100,7 @@ public sealed class ProjectDiagnosticsService(AppDbContext db, AnalysisService a
 				entry.CreatedAt,
 				entry.UndoneAt,
 				true,
+				entry.Id == currentHistoryId,
 				await history.GetItemsAsync(entry.Id, ct)));
 		}
 

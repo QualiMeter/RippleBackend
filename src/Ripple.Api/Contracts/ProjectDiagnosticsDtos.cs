@@ -59,4 +59,5 @@ public sealed record ProjectDiagnosticsHistoryDto(
 	DateTimeOffset CreatedAt,
 	DateTimeOffset? UndoneAt,
 	bool CanUndo,
+	bool IsCurrent,
 	IReadOnlyList<ChangeHistoryItemDto> Items);
