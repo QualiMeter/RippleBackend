@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Ripple.Api.Contracts;
 using Ripple.Api.Data;
@@ -9,7 +10,7 @@ namespace Ripple.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/projects")]
-public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime, ProjectReconcileService reconcile, ProjectDiagnosticsService diagnostics) : ControllerBase
+public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor currentUser, ChangeHistoryService history, IRealtimeNotifier realtime, ProjectReconcileService reconcile, ProjectDiagnosticsService diagnostics, ProjectImportExportService importExport) : ControllerBase
 {
 	[HttpGet]
 	public async Task<ActionResult<IReadOnlyList<ProjectListItemDto>>> GetAll(CancellationToken ct)
@@ -94,6 +95,44 @@ public sealed class ProjectsController(AppDbContext db, ICurrentUserAccessor cur
 		var updatedDetails = await BuildDetailsAsync(project.Id, ct);
 		await realtime.PublishAsync(project.Id, "project", "updated", project.Id, updatedDetails, ct);
 		return Ok(updatedDetails);
+	}
+
+	[HttpGet("{id:guid}/export")]
+	public async Task<IActionResult> Export(Guid id, CancellationToken ct)
+	{
+		var document = await importExport.ExportAsync(id, ct);
+		if (document is null) return NotFound();
+
+		var bytes = ProjectImportExportService.Serialize(document);
+		var safeName = string.Concat(document.Project.Name.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch)).Trim();
+		if (string.IsNullOrWhiteSpace(safeName)) safeName = "project";
+
+		return File(bytes, "application/json", $"{safeName}.ripple.json");
+	}
+
+	[HttpPost("import")]
+	[RequestSizeLimit(10 * 1024 * 1024)]
+	public async Task<ActionResult<ProjectImportResponse>> Import(IFormFile file, CancellationToken ct)
+	{
+		if (file is null || file.Length == 0)
+			return BadRequest("Import file is required.");
+
+		try
+		{
+			await using var stream = file.OpenReadStream();
+			var document = ProjectImportExportService.Deserialize(stream);
+			var result = await importExport.ImportAsync(document, ct);
+			await realtime.PublishAsync(result.ProjectId, "project", "created", result.ProjectId, result, ct);
+			return CreatedAtAction(nameof(Get), new { id = result.ProjectId }, result);
+		}
+		catch (JsonException ex)
+		{
+			return BadRequest($"Invalid import JSON: {ex.Message}");
+		}
+		catch (InvalidDataException ex)
+		{
+			return BadRequest(ex.Message);
+		}
 	}
 
 	[HttpGet("{id:guid}/diagnostics")]

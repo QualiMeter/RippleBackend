@@ -29,14 +29,14 @@ builder.Services.AddCors(options =>
 			"https://localhost:3000",
 			"http://localhost:5173",
 			"https://localhost:5173",
-			"http://localhost:4137",
-			"https://localhost:4137",
 			"http://localhost:8080",
 			"https://localhost:8080",
+			"http://localhost:4137",
+			"https://localhost:4137",
 			"http://92.63.102.15"
 		])
-		.Distinct(StringComparer.OrdinalIgnoreCase)
-		.ToArray();
+	.Distinct(StringComparer.OrdinalIgnoreCase)
+	.ToArray();
 
 	options.AddPolicy("Frontend", policy =>
 	{
@@ -116,6 +116,7 @@ builder.Services.AddScoped<DependencyGraphService>();
 builder.Services.AddScoped<ShiftService>();
 
 builder.Services.AddScoped<ChangeHistoryService>();
+	builder.Services.AddScoped<ProjectImportExportService>();
 builder.Services.AddScoped<AppDbContextAccessor>();
 builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
 
