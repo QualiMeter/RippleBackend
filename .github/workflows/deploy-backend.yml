@@ -62,4 +62,4 @@ jobs:
       - name: Check backend
         run: |
           ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "sudo systemctl is-active --quiet ripple-api"
+            "sudo -n systemctl is-active --quiet ripple-api"
