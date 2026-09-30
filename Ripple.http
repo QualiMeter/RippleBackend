@@ -1,12 +1,12 @@
 @baseUrl = https://localhost:7080
 
-# Seeded users
+### 1. Seeded users
 GET {{baseUrl}}/api/v1/users
 
-# Projects
+### 2. Projects
 GET {{baseUrl}}/api/v1/projects
 
-# OpenAPI
+### 3. OpenAPI
 GET {{baseUrl}}/openapi/v1.json
 
 ### 4. Scalar
@@ -23,13 +23,13 @@ GET {{baseUrl}}/scalar
 # { "confirmProjectEndDate": false }
 
 
-# DELETE task
+### 5. DELETE task
 # Without successors: deletes immediately.
 # With successors: first call returns 409 and lists affected tasks.
 # Then repeat with ?confirm=true.
 # DELETE {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}
 # DELETE {{baseUrl}}/api/v1/projects/{projectId}/tasks/{taskId}?confirm=true
 
-# DELETE project
+### 6. DELETE project
 # Physically deletes project and cascades employees/tasks/dependencies.
 # DELETE {{baseUrl}}/api/v1/projects/{projectId}

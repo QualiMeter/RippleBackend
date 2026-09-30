@@ -38,7 +38,8 @@ public sealed class TasksController(AppDbContext db, ICurrentUserAccessor curren
 		await EnsureProjectAsync(projectId, ct);
 		if (request.StartDate > request.EndDate) throw new ArgumentException("Task start date cannot be after task end date.");
 		var status = ParseStatus(request.Status);
-		var employee = await db.Employees.SingleOrDefaultAsync(x => x.Id == request.AssigneeId && x.ProjectId == projectId, ct) ?? throw new KeyNotFoundException("Assignee does not belong to project.");
+		var employee = await db.Employees.SingleOrDefaultAsync(x => x.Id == request.AssigneeId && x.ProjectId == projectId, ct);
+		if (employee is null) throw new KeyNotFoundException("Assignee does not belong to project.");
 		if (string.IsNullOrWhiteSpace(request.Name)) return ValidationProblem("Task name is required.");
 
 		var task = new ProjectTask
