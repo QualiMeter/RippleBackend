@@ -33,6 +33,8 @@ builder.Services.AddCors(options =>
 			"https://localhost:8080",
 			"http://localhost:4137",
 			"https://localhost:4137",
+			"http://127.0.0.1:4137",
+			"https://127.0.0.1:4137",
 			"http://92.63.102.15"
 		])
 	.Distinct(StringComparer.OrdinalIgnoreCase)
