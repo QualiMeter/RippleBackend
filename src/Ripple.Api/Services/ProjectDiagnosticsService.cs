@@ -99,7 +99,6 @@ public sealed class ProjectDiagnosticsService(AppDbContext db, AnalysisService a
 				entry.Description,
 				entry.CreatedAt,
 				entry.UndoneAt,
-				true,
 				entry.Id == currentHistoryId,
 				await history.GetItemsAsync(entry.Id, ct)));
 		}

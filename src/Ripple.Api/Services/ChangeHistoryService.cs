@@ -5,7 +5,7 @@ using Ripple.Api.Domain;
 
 namespace Ripple.Api.Services;
 
-public sealed record ChangeHistoryDto(Guid Id, string OperationType, string Description, DateTimeOffset CreatedAt, bool CanUndo, bool IsCurrent);
+public sealed record ChangeHistoryDto(Guid Id, string OperationType, string Description, DateTimeOffset CreatedAt, bool IsCurrent);
 public sealed record ChangeHistoryItemDto(string EntityType, Guid EntityId, string? BeforeJson, string? AfterJson);
 
 public sealed class ChangeHistoryService(AppDbContext db)
@@ -62,7 +62,6 @@ public sealed class ChangeHistoryService(AppDbContext db)
 				x.OperationType,
 				x.Description,
 				x.CreatedAt,
-				true,
 				x.Id == current?.Id))
 			.ToList();
 	}
@@ -115,7 +114,6 @@ public sealed class ChangeHistoryService(AppDbContext db)
 				target.OperationType,
 				target.Description,
 				target.CreatedAt,
-				true,
 				true);
 		});
 	}
