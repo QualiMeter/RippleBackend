@@ -78,10 +78,9 @@ public sealed class ChangeHistoryService(AppDbContext db)
 
 	public async Task<ChangeHistoryDto?> UndoAsync(Guid projectId, Guid historyId, CancellationToken ct)
 	{
-		var target = await db.ChangeOperations
-			.AsNoTracking()
-			.SingleOrDefaultAsync(x => x.Id == historyId && x.ProjectId == projectId, ct);
-		if (target is null) return null;
+		// The route parameter is kept for frontend compatibility, but undo is
+		// always a step back from the version that is currently active.
+		_ = historyId;
 
 		var operations = await db.ChangeOperations
 			.AsNoTracking()
@@ -91,29 +90,66 @@ public sealed class ChangeHistoryService(AppDbContext db)
 			.ThenBy(x => x.Id)
 			.ToListAsync(ct);
 
-		var targetIndex = operations.FindIndex(x => x.Id == historyId);
-		if (targetIndex < 0) return null;
+		if (operations.Count == 0)
+			return null;
+
+		var current = operations
+			.Where(x => x.UndoneAt.HasValue)
+			.OrderByDescending(x => x.UndoneAt)
+			.FirstOrDefault();
+
+		// Projects created before the current-version marker was introduced have
+		// no marker yet. Their newest history entry is the current version.
+		current ??= operations[^1];
+
+		var currentIndex = operations.FindIndex(x => x.Id == current.Id);
+		if (currentIndex <= 0)
+			throw new InvalidOperationException("There is no previous history version to restore.");
+
+		var previous = operations[currentIndex - 1];
 
 		var strategy = db.Database.CreateExecutionStrategy();
 		return await strategy.ExecuteAsync(async () =>
 		{
 			await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
+			// Restore exactly the state represented by the previous history entry.
+			// Later operations remain in history, but are no longer active.
 			await ClearProjectStateAsync(projectId, ct);
 
-			for (var i = 0; i <= targetIndex; i++)
+			for (var i = 0; i <= currentIndex - 1; i++)
 				await ApplyForwardAsync(operations[i], ct);
 
-			target.UndoneAt = DateTimeOffset.UtcNow;
-			db.ChangeOperations.Update(target);
+			// Move the persistent current-version marker one step backwards.
+			// Clearing all markers is important after multiple consecutive undos:
+			// otherwise an older marker could incorrectly win by timestamp.
+			var markerIds = operations
+				.Where(x => x.UndoneAt.HasValue)
+				.Select(x => x.Id)
+				.ToHashSet();
+
+			if (markerIds.Count > 0)
+			{
+				var markers = await db.ChangeOperations
+					.Where(x => x.ProjectId == projectId && markerIds.Contains(x.Id))
+					.ToListAsync(ct);
+
+				foreach (var operation in markers)
+					operation.UndoneAt = null;
+			}
+
+			var previousEntity = await db.ChangeOperations
+				.SingleAsync(x => x.Id == previous.Id && x.ProjectId == projectId, ct);
+			previousEntity.UndoneAt = DateTimeOffset.UtcNow;
+
 			await db.SaveChangesAsync(ct);
 			await transaction.CommitAsync(ct);
 
 			return new ChangeHistoryDto(
-				target.Id,
-				target.OperationType,
-				target.Description,
-				target.CreatedAt,
+				previous.Id,
+				previous.OperationType,
+				previous.Description,
+				previous.CreatedAt,
 				true);
 		});
 	}
