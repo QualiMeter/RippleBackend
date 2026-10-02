@@ -51,7 +51,7 @@ jobs:
       - name: Deploy
         run: |
           tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "rm -rf /var/www/api/* && tar -C /var/www/api -xf -"
+            "rm -rf /var/www/ripple/backend/* && tar -C /var/www/ripple/backend -xf -"
 
       - name: Start backend
         if: always()
