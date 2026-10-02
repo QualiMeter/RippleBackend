@@ -138,7 +138,12 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 				new { role = "user", content = user }
 			},
 			format = OutputSchema,
-			options = new { temperature = 0.1 }
+			options = new
+			{
+				temperature = 0.1,
+				num_predict = Math.Clamp(options.Value.NumPredict, 128, 1024),
+				stop = new[] { "```" }
+			}
 		};
 
 		using var response = await http.PostAsJsonAsync("api/chat", request, JsonOptions, ct);

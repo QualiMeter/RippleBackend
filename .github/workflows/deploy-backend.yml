@@ -6,17 +6,9 @@ on:
       - master
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: deploy-backend-production
-  cancel-in-progress: false
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -44,86 +36,30 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
 
-      - name: Validate deployment secrets
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-        run: |
-          test -n "$SERVER_HOST"
-          test -n "$SERVER_USER"
-
       - name: Add server to known_hosts
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
       - name: Stop backend
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh "$SERVER_USER@$SERVER_HOST"             "sudo -n systemctl stop ripple-api"
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "sudo systemctl stop ripple-api"
 
       - name: Deploy
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          set -euo pipefail
-
-          tar -C publish -cf - . | ssh "$SERVER_USER@$SERVER_HOST"             "rm -rf /var/www/ripple/backend/* && tar -C /var/www/ripple/backend -xf -"
+          tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "rm -rf /var/www/api/* && tar -C /var/www/api -xf -"
 
       - name: Start backend
         if: always()
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh "$SERVER_USER@$SERVER_HOST"             "sudo -n systemctl start ripple-api"
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "sudo systemctl start ripple-api"
 
       - name: Check backend
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh "$SERVER_USER@$SERVER_HOST" '
-            set -e
-
-            echo "Waiting for Ripple API to start..."
-
-            for i in $(seq 1 30); do
-              STATUS=$(sudo -n systemctl is-active ripple-api || true)
-
-              echo "Attempt $i/30: $STATUS"
-
-              if [ "$STATUS" = "active" ]; then
-                echo "Ripple API is active"
-                exit 0
-              fi
-
-              if [ "$STATUS" = "failed" ]; then
-                echo "Ripple API failed to start"
-                sudo -n systemctl status ripple-api --no-pager || true
-                echo
-                echo "===== JOURNAL ====="
-                sudo -n journalctl -u ripple-api -n 100 --no-pager || true
-                exit 1
-              fi
-
-              sleep 2
-            done
-
-            echo "Ripple API did not become active within 60 seconds"
-            echo
-            echo "===== SYSTEMD STATUS ====="
-            sudo -n systemctl status ripple-api --no-pager || true
-            echo
-            echo "===== JOURNAL ====="
-            sudo -n journalctl -u ripple-api -n 100 --no-pager || true
-
-            exit 1
-          '
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "sudo -n systemctl is-active ripple-api"
