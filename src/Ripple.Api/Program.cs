@@ -35,7 +35,8 @@ builder.Services.AddCors(options =>
 			"https://localhost:8080",
 			"http://localhost:4137",
 			"https://localhost:4137",
-			"http://92.63.102.15"
+			"http://ripple.rebyte.fun",
+			"https://ripple.rebyte.fun"
 		])
 	.Distinct(StringComparer.OrdinalIgnoreCase)
 	.ToArray();
