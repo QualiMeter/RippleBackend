@@ -172,3 +172,72 @@ Example event:
 ```
 
 Supported entity events include `project`, `task`, `employee`, `task_dependency` and `history`. Actions include `created`, `updated`, `deleted`, `restored`, `undone` and `refresh`.
+
+## Local AI project planning
+
+Ripple can use a local Ollama model to turn a natural-language project request into a **previewable AI plan**. The model never writes to PostgreSQL directly.
+
+Recommended model for an 8 GB RAM / 4 CPU server:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen3:4b
+```
+
+Default configuration:
+
+```text
+Ollama__BaseUrl=http://127.0.0.1:11434
+Ollama__Model=qwen3:4b
+Ollama__TimeoutSeconds=120
+```
+
+If the API runs in Docker and Ollama runs in the included Compose service, set:
+
+```text
+Ollama__BaseUrl=http://ollama:11434
+```
+
+### AI endpoints
+
+Create a new project from a natural-language request:
+
+```http
+POST /api/v1/ai/projects/plan
+Content-Type: application/json
+
+{"prompt":"Создай проект интернет-магазина на два месяца: дизайн, backend, frontend, оплата и тестирование. Backend и frontend после дизайна могут идти параллельно."}
+```
+
+This returns an `AiPlanDto`. Nothing is changed until confirmation.
+
+Create an update plan for an existing project:
+
+```http
+POST /api/v1/projects/{projectId}/ai/plan
+Content-Type: application/json
+
+{"prompt":"Перенеси backend на неделю позже и скорректируй зависимые задачи."}
+```
+
+Read a plan:
+
+```http
+GET /api/v1/ai/plans/{planId}
+```
+
+Confirm a new-project plan:
+
+```http
+POST /api/v1/ai/plans/{planId}/confirm
+```
+
+Confirm an existing-project update:
+
+```http
+POST /api/v1/projects/{projectId}/ai/plan/{planId}/confirm
+```
+
+The confirmation endpoint validates the stored plan again against the current database state before applying it. Confirmed changes are recorded as one normal Ripple history operation, so the existing history/undo mechanism can move back over the AI change.
+
+The AI layer validates project dates, task dates, assignees, dependency references and dependency cycles. Date arithmetic and dependency rules remain server-side; the model only proposes changes. AI-generated changes are shown as a preview with before/after values before confirmation.

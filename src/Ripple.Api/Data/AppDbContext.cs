@@ -12,6 +12,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 	public DbSet<TaskDependency> TaskDependencies => Set<TaskDependency>();
 	public DbSet<ChangeOperation> ChangeOperations => Set<ChangeOperation>();
 	public DbSet<ChangeItem> ChangeItems => Set<ChangeItem>();
+	public DbSet<AiPlan> AiPlans => Set<AiPlan>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
@@ -92,6 +93,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 			b.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
 			b.Property(x => x.UndoneAt).HasColumnName("undone_at");
 			b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.SetNull);
+			b.HasIndex(x => new { x.ProjectId, x.CreatedAt });
+		});
+
+		modelBuilder.Entity<AiPlan>(b =>
+		{
+			b.ToTable("ai_plans");
+			b.HasKey(x => x.Id);
+			b.Property(x => x.Id).HasColumnName("Id");
+			b.Property(x => x.ProjectId).HasColumnName("project_id");
+			b.Property(x => x.CreatorId).HasColumnName("creator_id").IsRequired();
+			b.Property(x => x.Prompt).HasColumnName("prompt").HasColumnType("text").IsRequired();
+			b.Property(x => x.OperationType).HasColumnName("operation_type").HasMaxLength(64).IsRequired();
+			b.Property(x => x.Summary).HasColumnName("summary").HasMaxLength(1000).IsRequired();
+			b.Property(x => x.PlanJson).HasColumnName("plan_json").HasColumnType("text").IsRequired();
+			b.Property(x => x.ContextHash).HasColumnName("context_hash").HasMaxLength(64);
+			b.Property(x => x.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(32).IsRequired();
+			b.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+			b.Property(x => x.ConfirmedAt).HasColumnName("confirmed_at");
+			b.HasIndex(x => new { x.CreatorId, x.CreatedAt });
 			b.HasIndex(x => new { x.ProjectId, x.CreatedAt });
 		});
 

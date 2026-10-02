@@ -96,6 +96,14 @@ projectChanged payload:
 }
 
 REST remains the source of truth. SignalR delivers realtime deltas so the frontend can update individual entities without reloading the whole project.
+
+Local AI planning:
+- POST /api/v1/ai/projects/plan: generate a preview for creating a project from natural language.
+- POST /api/v1/projects/{projectId}/ai/plan: generate a preview for editing an existing project.
+- GET /api/v1/ai/plans/{planId}: read a stored preview.
+- POST /api/v1/ai/plans/{planId}/confirm: confirm a new-project plan.
+- POST /api/v1/projects/{projectId}/ai/plan/{planId}/confirm: confirm an existing-project plan.
+AI uses a local Ollama model and never writes to the database before confirmation. Confirmed AI changes are recorded in the normal project history.
 """;
 		return Task.CompletedTask;
 	});
@@ -119,6 +127,14 @@ builder.Services.AddScoped<ChangeHistoryService>();
 	builder.Services.AddScoped<ProjectImportExportService>();
 builder.Services.AddScoped<AppDbContextAccessor>();
 builder.Services.AddScoped<IRealtimeNotifier, RealtimeNotifier>();
+builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Ollama"));
+builder.Services.AddHttpClient<IOllamaClient, OllamaClient>((serviceProvider, client) =>
+{
+	var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OllamaOptions>>().Value;
+	client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+	client.Timeout = TimeSpan.FromSeconds(Math.Max(10, options.TimeoutSeconds));
+});
+builder.Services.AddScoped<AiPlanningService>();
 
 var app = builder.Build();
 

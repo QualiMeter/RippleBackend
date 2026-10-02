@@ -31,6 +31,22 @@ CREATE TABLE IF NOT EXISTS change_items (
 	after_json text NULL
 );
 CREATE INDEX IF NOT EXISTS ix_change_items_operation ON change_items(operation_id);
+CREATE TABLE IF NOT EXISTS ai_plans (
+	"Id" uuid PRIMARY KEY,
+	project_id uuid NULL REFERENCES projects("Id") ON DELETE SET NULL,
+	creator_id uuid NOT NULL REFERENCES users("Id") ON DELETE RESTRICT,
+	prompt text NOT NULL,
+	operation_type varchar(64) NOT NULL,
+	summary varchar(1000) NOT NULL,
+	plan_json text NOT NULL,
+	status varchar(32) NOT NULL,
+	created_at timestamptz NOT NULL,
+	confirmed_at timestamptz NULL,
+	context_hash varchar(64) NULL
+);
+CREATE INDEX IF NOT EXISTS ix_ai_plans_creator_created ON ai_plans(creator_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_ai_plans_project_created ON ai_plans(project_id, created_at);
+ALTER TABLE ai_plans ADD COLUMN IF NOT EXISTS context_hash varchar(64);
 """, cancellationToken);
 
 		await db.Database.ExecuteSqlRawAsync("ALTER TABLE employees ADD COLUMN IF NOT EXISTS phone varchar(40)", cancellationToken);
