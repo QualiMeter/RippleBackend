@@ -2,99 +2,99 @@ name: Deploy Backend
 
 on:
   push:
-    branches:
-      - master
+	branches:
+	  - master
   workflow_dispatch:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+	runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+	steps:
+	  - name: Checkout
+		uses: actions/checkout@v4
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.x
+	  - name: Setup .NET
+		uses: actions/setup-dotnet@v4
+		with:
+		  dotnet-version: 10.x
 
-      - name: Restore
-        working-directory: src/Ripple.Api
-        run: dotnet restore Ripple.Api.csproj
+	  - name: Restore
+		working-directory: src/Ripple.Api
+		run: dotnet restore Ripple.Api.csproj
 
-      - name: Build
-        working-directory: src/Ripple.Api
-        run: dotnet build Ripple.Api.csproj -c Release --no-restore
+	  - name: Build
+		working-directory: src/Ripple.Api
+		run: dotnet build Ripple.Api.csproj -c Release --no-restore
 
-      - name: Publish
-        working-directory: src/Ripple.Api
-        run: dotnet publish Ripple.Api.csproj -c Release --no-build -o ../../publish
+	  - name: Publish
+		working-directory: src/Ripple.Api
+		run: dotnet publish Ripple.Api.csproj -c Release --no-build -o ../../publish
 
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+	  - name: Setup SSH
+		uses: webfactory/ssh-agent@v0.9.0
+		with:
+		  ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
 
-      - name: Add server to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+	  - name: Add server to known_hosts
+		run: |
+		  mkdir -p ~/.ssh
+		  chmod 700 ~/.ssh
+		  ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+		  chmod 600 ~/.ssh/known_hosts
 
-      - name: Stop backend
-        run: |
-          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "sudo systemctl stop ripple-api"
+	  - name: Stop backend
+		run: |
+		  ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+			"sudo systemctl stop ripple-api"
 
-      - name: Deploy
-        run: |
-          tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "rm -rf /var/www/ripple/backend/* && tar -C /var/www/ripple/backend -xf -"
+	  - name: Deploy
+		run: |
+		  tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+			"rm -rf /var/www/ripple/backend/* && tar -C /var/www/ripple/backend -xf -"
 
-      - name: Start backend
-        if: always()
-        run: |
-          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "sudo systemctl start ripple-api"
+	  - name: Start backend
+		if: always()
+		run: |
+		  ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+			"sudo systemctl start ripple-api"
 
-            - name: Check backend
-        run: |
-          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
-            set -e
+			- name: Check backend
+		run: |
+		  ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
+			set -e
 
-            echo "Waiting for Ripple API to start..."
+			echo "Waiting for Ripple API to start..."
 
-            for i in $(seq 1 30); do
-              STATUS=$(sudo -n systemctl is-active ripple-api || true)
+			for i in $(seq 1 30); do
+			  STATUS=$(sudo -n systemctl is-active ripple-api || true)
 
-              echo "Attempt $i/30: $STATUS"
+			  echo "Attempt $i/30: $STATUS"
 
-              if [ "$STATUS" = "active" ]; then
-                echo "Ripple API is active"
-                exit 0
-              fi
+			  if [ "$STATUS" = "active" ]; then
+				echo "Ripple API is active"
+				exit 0
+			  fi
 
-              if [ "$STATUS" = "failed" ]; then
-                echo "Ripple API failed to start"
-                sudo -n systemctl status ripple-api --no-pager || true
-                echo
-                echo "===== JOURNAL ====="
-                sudo -n journalctl -u ripple-api -n 100 --no-pager || true
-                exit 1
-              fi
+			  if [ "$STATUS" = "failed" ]; then
+				echo "Ripple API failed to start"
+				sudo -n systemctl status ripple-api --no-pager || true
+				echo
+				echo "===== JOURNAL ====="
+				sudo -n journalctl -u ripple-api -n 100 --no-pager || true
+				exit 1
+			  fi
 
-              sleep 2
-            done
+			  sleep 2
+			done
 
-            echo "Ripple API did not become active within 60 seconds"
-            echo
-            echo "===== SYSTEMD STATUS ====="
-            sudo -n systemctl status ripple-api --no-pager || true
-            echo
-            echo "===== JOURNAL ====="
-            sudo -n journalctl -u ripple-api -n 100 --no-pager || true
+			echo "Ripple API did not become active within 60 seconds"
+			echo
+			echo "===== SYSTEMD STATUS ====="
+			sudo -n systemctl status ripple-api --no-pager || true
+			echo
+			echo "===== JOURNAL ====="
+			sudo -n journalctl -u ripple-api -n 100 --no-pager || true
 
-            exit 1
-          '
+			exit 1
+		  '
