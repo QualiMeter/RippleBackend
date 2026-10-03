@@ -110,15 +110,15 @@ You are Ripple's project planning engine. Return only the JSON object required b
 You do not execute changes.
 
 ID RULES:
-- For CREATE operations, id MUST be null. Never invent GUIDs or pseudo-IDs such as project_123, task_456, or employee_789.
-- For CREATE operations, tempId MUST be a unique string within the entire plan (for example project_1, employee_1, task_1).
+- For CREATE operations, id MUST be JSON null. NEVER output a string in id. NEVER use project_123, task_456, employee_789, or any other pseudo-ID in id.
+- For CREATE operations, tempId MUST be a unique string across the ENTIRE plan. Employee tempIds and task tempIds must never overlap.
 - For UPDATE and DELETE operations, id MUST be an existing GUID copied exactly from CURRENT RIPPLE CONTEXT.
 - Never invent an existing entity ID.
 - References to newly created employees/tasks MUST use their tempId fields.
 - Do not put the same tempId on two different entities.
 
 DATE RULES:
-- All dates MUST use exactly YYYY-MM-DD. Never include a time, timezone, or datetime suffix.
+- All dates MUST use exactly YYYY-MM-DD. Never include a time, timezone, or datetime suffix. If the user says only a month/day, use the CURRENT DATE year; do not invent an old year such as 2023.
 - Use the current date supplied by the user message to resolve an unspecified year.
 - Do not invent a historical year when the user did not specify one.
 - Project and task dates must respect project boundaries.
@@ -143,7 +143,7 @@ USER REQUEST:
 CURRENT RIPPLE CONTEXT:
 {contextJson}
 
-Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
+Produce a proposed plan. For update_project, null fields mean 'leave unchanged'. Remember: create IDs are null; only tempId identifies newly created entities.
 """;
 
 		var request = new
@@ -231,28 +231,43 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 			};
 		}
 
+		var usedTempIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var item in raw.Employees)
 		{
 			var action = item.Action?.Trim() ?? "create";
+			var tempId = NullIfWhiteSpace(item.TempId);
+			if (string.Equals(action, "create", StringComparison.OrdinalIgnoreCase))
+				tempId = MakeUniqueTempId(tempId, "employee", usedTempIds);
+
 			document.Employees.Add(new AiEmployeeChange
 			{
 				Action = action,
 				Id = ParseGuid(item.Id, "employee.id", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
-				TempId = NullIfWhiteSpace(item.TempId),
+				TempId = tempId,
 				Name = NullIfWhiteSpace(item.Name),
 				Phone = NullIfWhiteSpace(item.Phone),
 				Email = NullIfWhiteSpace(item.Email)
 			});
 		}
 
+		var taskPseudoIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		foreach (var item in raw.Tasks)
 		{
 			var action = item.Action?.Trim() ?? "create";
+			var tempId = NullIfWhiteSpace(item.TempId);
+			if (string.Equals(action, "create", StringComparison.OrdinalIgnoreCase))
+			{
+				var originalPseudoId = NullIfWhiteSpace(item.Id);
+				tempId = MakeUniqueTempId(tempId, "task", usedTempIds);
+				if (!string.IsNullOrWhiteSpace(originalPseudoId) && !Guid.TryParse(originalPseudoId, out _))
+					taskPseudoIdMap[originalPseudoId] = tempId!;
+			}
+
 			document.Tasks.Add(new AiTaskChange
 			{
 				Action = action,
 				Id = ParseGuid(item.Id, "task.id", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
-				TempId = NullIfWhiteSpace(item.TempId),
+				TempId = tempId,
 				Name = NullIfWhiteSpace(item.Name),
 				StartDate = NormalizeDate(item.StartDate, "task.startDate"),
 				EndDate = NormalizeDate(item.EndDate, "task.endDate"),
@@ -265,13 +280,25 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		foreach (var item in raw.Dependencies)
 		{
 			var action = item.Action?.Trim() ?? "create";
+			var predecessorTempId = NullIfWhiteSpace(item.PredecessorTempId);
+			var successorTempId = NullIfWhiteSpace(item.SuccessorTempId);
+			if (string.Equals(action, "create", StringComparison.OrdinalIgnoreCase))
+			{
+				var pseudoPredecessor = NullIfWhiteSpace(item.PredecessorTaskId);
+				var pseudoSuccessor = NullIfWhiteSpace(item.SuccessorTaskId);
+				if (!string.IsNullOrWhiteSpace(pseudoPredecessor) && taskPseudoIdMap.TryGetValue(pseudoPredecessor, out var mappedPredecessor))
+					predecessorTempId = mappedPredecessor;
+				if (!string.IsNullOrWhiteSpace(pseudoSuccessor) && taskPseudoIdMap.TryGetValue(pseudoSuccessor, out var mappedSuccessor))
+					successorTempId = mappedSuccessor;
+			}
+
 			document.Dependencies.Add(new AiDependencyChange
 			{
 				Action = action,
 				PredecessorTaskId = ParseGuid(item.PredecessorTaskId, "dependency.predecessorTaskId", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
 				SuccessorTaskId = ParseGuid(item.SuccessorTaskId, "dependency.successorTaskId", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
-				PredecessorTempId = NullIfWhiteSpace(item.PredecessorTempId),
-				SuccessorTempId = NullIfWhiteSpace(item.SuccessorTempId)
+				PredecessorTempId = predecessorTempId,
+				SuccessorTempId = successorTempId
 			});
 		}
 
@@ -293,6 +320,20 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		}
 
 		return document;
+	}
+
+	private static string? MakeUniqueTempId(string? requested, string prefix, ISet<string> used)
+	{
+		var candidate = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
+		if (!string.IsNullOrWhiteSpace(candidate) && used.Add(candidate))
+			return candidate;
+
+		for (var index = 1; ; index++)
+		{
+			candidate = $"{prefix}_{index}";
+			if (used.Add(candidate))
+				return candidate;
+		}
 	}
 
 	private static Guid? ParseGuid(string? value, string field, bool allowInvalidForCreate)
