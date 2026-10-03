@@ -7,7 +7,7 @@ namespace Ripple.Api.Services;
 
 public interface IOllamaClient
 {
-	Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct, Func<string, int, Task>? onProgress = null);
+	Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct, Func<string, int, string?, Task>? onProgress = null);
 }
 
 public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> options, ILogger<OllamaClient> logger) : IOllamaClient
@@ -106,7 +106,7 @@ public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> option
 		}
 	};
 
-	public async Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct, Func<string, int, Task>? onProgress = null)
+	public async Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct, Func<string, int, string?, Task>? onProgress = null)
 	{
 		if (string.IsNullOrWhiteSpace(prompt))
 			throw new ArgumentException("AI prompt is required.");
@@ -198,7 +198,7 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 			throw new InvalidOperationException($"Ollama request failed ({(int)response.StatusCode}): {errorBody}");
 		}
 
-		if (onProgress is not null) await onProgress("ollama_started", 0);
+		if (onProgress is not null) await onProgress("ollama_started", 0, null);
 		await using var stream = await response.Content.ReadAsStreamAsync(ct);
 		using var reader = new StreamReader(stream);
 		var content = new StringBuilder();
@@ -233,7 +233,7 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 				content.Append(piece);
 				received += piece.Length;
 				if (received % 160 < piece.Length)
-					if (onProgress is not null) await onProgress("generating", received);
+					if (onProgress is not null) await onProgress("generating", received, piece);
 			}
 		}
 
@@ -249,7 +249,7 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 
 		var planJson = content.ToString();
 		logger.LogInformation("Ollama returned AI plan JSON: {PlanJson}", planJson);
-		if (onProgress is not null) await onProgress("response_received", received);
+		if (onProgress is not null) await onProgress("response_received", received, null);
 
 		try
 		{

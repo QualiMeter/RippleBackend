@@ -47,12 +47,12 @@ public sealed class AiPlanningService(
 		}
 
 		await ReportAsync(onProgress, "context_ready", 15, "Контекст проекта подготовлен");
-		var document = await ollama.CreatePlanAsync(prompt, context, ct, async (stage, received) =>
+		var document = await ollama.CreatePlanAsync(prompt, context, ct, async (stage, received, text) =>
 		{
 			if (stage == "ollama_started")
 				await ReportAsync(onProgress, stage, 20, "ИИ формирует план");
 			else if (stage == "generating")
-				await ReportAsync(onProgress, stage, Math.Min(75, 20 + received / 80), "Получаю результат ИИ");
+				await ReportAsync(onProgress, stage, Math.Min(75, 20 + received / 80), "ИИ генерирует структуру плана", text);
 			else if (stage == "response_received")
 				await ReportAsync(onProgress, stage, 78, "Ответ ИИ получен, проверяю структуру");
 		});
@@ -764,10 +764,10 @@ public sealed class AiPlanningService(
 		return changes;
 	}
 
-	private static async Task ReportAsync(Func<AiProgressUpdate, Task>? callback, string stage, int progress, string message)
+	private static async Task ReportAsync(Func<AiProgressUpdate, Task>? callback, string stage, int progress, string message, string? text = null)
 	{
 		if (callback is not null)
-			await callback(new AiProgressUpdate(stage, Math.Clamp(progress, 0, 100), message));
+			await callback(new AiProgressUpdate(stage, Math.Clamp(progress, 0, 100), message, text));
 	}
 
 	private static AiPlanDto ToDto(AiPlan plan, IReadOnlyList<AiPlanChangeDto> changes) => new(
