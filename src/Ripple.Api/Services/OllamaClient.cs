@@ -16,6 +16,11 @@ public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> option
 		PropertyNameCaseInsensitive = true
 	};
 
+	static OllamaClient()
+	{
+		JsonOptions.Converters.Add(new AiGuidJsonConverter());
+	}
+
 	private static readonly object OutputSchema = new
 	{
 		type = "object",
@@ -108,7 +113,7 @@ public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> option
 You are Ripple's project planning engine. Return only the JSON object required by the supplied schema.
 You do not execute changes and you must never invent existing IDs.
 For update_project, use only IDs present in the supplied project context.
-For create_project, temporary IDs are allowed for new employees/tasks and must be unique strings.
+For create_project, IDs for new employees/tasks/projects are not domain GUIDs. You may use simple unique placeholder strings such as employee_1 and task_1. Always use tempId as the canonical reference for newly created entities. Never put a task_* value into an employee tempId or an employee_* value into a task tempId. For a new task assignee, prefer assigneeTempId with the exact employee tempId and leave assigneeId null. For a new dependency, prefer predecessorTempId/successorTempId with the exact task tempIds and leave predecessorTaskId/successorTaskId null.
 Dates must use ISO format YYYY-MM-DD. Status must be one of NotStarted, InProgress, Completed, Delayed.
 Dependencies are predecessor -> successor and the successor must start strictly after the predecessor end date.
 Ripple will normalize dependency dates after generation, preserving task duration and cascading shifts to successors.

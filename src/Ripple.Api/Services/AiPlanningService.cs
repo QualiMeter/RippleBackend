@@ -25,6 +25,11 @@ public sealed class AiPlanningService(
 		PropertyNameCaseInsensitive = true
 	};
 
+	static AiPlanningService()
+	{
+		JsonOptions.Converters.Add(new AiGuidJsonConverter());
+	}
+
 	public async Task<AiPlanDto> CreatePlanAsync(Guid? projectId, string prompt, CancellationToken ct)
 	{
 		logger.LogInformation("AI planning build marker: {BuildMarker}", BuildMarker);
@@ -160,17 +165,20 @@ public sealed class AiPlanningService(
 		db.Projects.Add(project);
 
 		var employeeMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+		var employeeAliasMap = new Dictionary<Guid, Guid>();
 		foreach (var item in document.Employees.Where(x => string.Equals(x.Action, "create", StringComparison.OrdinalIgnoreCase)))
 		{
 			if (string.IsNullOrWhiteSpace(item.TempId) || string.IsNullOrWhiteSpace(item.Name))
 				throw new InvalidOperationException("Every AI-created employee must have tempId and name.");
 			var employee = new Employee { Id = Guid.NewGuid(), ProjectId = project.Id, Name = item.Name.Trim(), Phone = item.Phone, Email = item.Email };
 			employeeMap[item.TempId] = employee.Id;
+			if (item.Id.HasValue) employeeAliasMap[item.Id.Value] = employee.Id;
 			history.Add(operation, "employee", employee.Id, null, ChangeHistoryService.Snapshot(employee));
 			db.Employees.Add(employee);
 		}
 
 		var taskMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+		var taskAliasMap = new Dictionary<Guid, Guid>();
 		var unassignedTasks = document.Tasks.Where(x => string.Equals(x.Action, "create", StringComparison.OrdinalIgnoreCase) && x.AssigneeId is null && string.IsNullOrWhiteSpace(x.AssigneeTempId)).ToList();
 		if (unassignedTasks.Count > 0)
 		{
@@ -188,21 +196,22 @@ public sealed class AiPlanningService(
 			var taskEnd = ParseDate(item.EndDate, $"task {item.TempId}.endDate");
 			if (taskStart > taskEnd) throw new InvalidOperationException($"Task '{item.Name}' has invalid dates.");
 			if (taskStart < project.StartDate || taskEnd > project.EndDate) throw new InvalidOperationException($"Task '{item.Name}' is outside project boundaries.");
-			var assigneeId = ResolveAssignee(item, employeeMap, allowExisting: false);
+			var assigneeId = ResolveAssignee(item, employeeMap, employeeAliasMap, allowExisting: false);
 			var task = new ProjectTask
 			{
 				Id = Guid.NewGuid(), ProjectId = project.Id, Name = item.Name.Trim(), StartDate = taskStart, EndDate = taskEnd,
 				AssigneeId = assigneeId, Status = ParseStatus(item.Status)
 			};
 			taskMap[item.TempId] = task.Id;
+			if (item.Id.HasValue) taskAliasMap[item.Id.Value] = task.Id;
 			history.Add(operation, "task", task.Id, null, ChangeHistoryService.Snapshot(task));
 			db.Tasks.Add(task);
 		}
 
 		foreach (var item in document.Dependencies.Where(x => string.Equals(x.Action, "create", StringComparison.OrdinalIgnoreCase)))
 		{
-			var predecessorId = ResolveTask(item.PredecessorTaskId, item.PredecessorTempId, taskMap, project.Id);
-			var successorId = ResolveTask(item.SuccessorTaskId, item.SuccessorTempId, taskMap, project.Id);
+			var predecessorId = ResolveTask(item.PredecessorTaskId, item.PredecessorTempId, taskMap, taskAliasMap, project.Id);
+			var successorId = ResolveTask(item.SuccessorTaskId, item.SuccessorTempId, taskMap, taskAliasMap, project.Id);
 			if (predecessorId == successorId) throw new InvalidOperationException("AI plan contains a self dependency.");
 			var dependency = new TaskDependency { PredecessorTaskId = predecessorId, SuccessorTaskId = successorId, CreatedAt = DateTimeOffset.UtcNow };
 			history.Add(operation, "task_dependency", predecessorId, null, ChangeHistoryService.Snapshot(dependency));
@@ -270,7 +279,7 @@ public sealed class AiPlanningService(
 			var start = ParseDate(item.StartDate, $"task {item.TempId}.startDate");
 			var end = ParseDate(item.EndDate, $"task {item.TempId}.endDate");
 			if (start > end) throw new InvalidOperationException($"Task '{item.Name}' has invalid dates.");
-			var assignee = ResolveAssignee(item, employeeMap, allowExisting: true);
+			var assignee = ResolveAssignee(item, employeeMap, new Dictionary<Guid, Guid>(), allowExisting: true);
 			if (!employees.ContainsKey(assignee)) throw new InvalidOperationException($"Task '{item.Name}' references an unknown employee.");
 			var task = new ProjectTask { Id = Guid.NewGuid(), ProjectId = projectId, Name = item.Name.Trim(), StartDate = start, EndDate = end, AssigneeId = assignee, Status = ParseStatus(item.Status) };
 			taskMap[item.TempId] = task.Id;
@@ -309,8 +318,8 @@ public sealed class AiPlanningService(
 		{
 			if (string.Equals(item.Action, "create", StringComparison.OrdinalIgnoreCase))
 			{
-				var predecessor = ResolveTask(item.PredecessorTaskId, item.PredecessorTempId, taskMap, projectId);
-				var successor = ResolveTask(item.SuccessorTaskId, item.SuccessorTempId, taskMap, projectId);
+				var predecessor = ResolveTask(item.PredecessorTaskId, item.PredecessorTempId, taskMap, new Dictionary<Guid, Guid>(), projectId);
+				var successor = ResolveTask(item.SuccessorTaskId, item.SuccessorTempId, taskMap, new Dictionary<Guid, Guid>(), projectId);
 				if (predecessor == successor) throw new InvalidOperationException("AI plan contains a self dependency.");
 				if (await db.TaskDependencies.AnyAsync(x => x.PredecessorTaskId == predecessor && x.SuccessorTaskId == successor, ct)) continue;
 				if (await graph.WouldCreateCycleAsync(predecessor, successor, ct)) throw new InvalidOperationException("AI plan would create a dependency cycle.");
@@ -320,8 +329,8 @@ public sealed class AiPlanningService(
 			}
 			else if (string.Equals(item.Action, "delete", StringComparison.OrdinalIgnoreCase))
 			{
-				var predecessor = ResolveTask(item.PredecessorTaskId, item.PredecessorTempId, taskMap, projectId);
-				var successor = ResolveTask(item.SuccessorTaskId, item.SuccessorTempId, taskMap, projectId);
+				var predecessor = ResolveTask(item.PredecessorTaskId, item.PredecessorTempId, taskMap, new Dictionary<Guid, Guid>(), projectId);
+				var successor = ResolveTask(item.SuccessorTaskId, item.SuccessorTempId, taskMap, new Dictionary<Guid, Guid>(), projectId);
 				var dependency = await db.TaskDependencies.SingleOrDefaultAsync(x => x.PredecessorTaskId == predecessor && x.SuccessorTaskId == successor, ct);
 				if (dependency is not null)
 				{
@@ -716,16 +725,18 @@ public sealed class AiPlanningService(
 		throw new InvalidOperationException($"AI returned invalid task status: {value}");
 	}
 
-	private static Guid ResolveAssignee(AiTaskChange item, IReadOnlyDictionary<string, Guid> employeeMap, bool allowExisting)
+	private static Guid ResolveAssignee(AiTaskChange item, IReadOnlyDictionary<string, Guid> employeeMap, IReadOnlyDictionary<Guid, Guid> employeeAliasMap, bool allowExisting)
 	{
 		if (item.AssigneeTempId is not null && employeeMap.TryGetValue(item.AssigneeTempId, out var tempId)) return tempId;
+		if (item.AssigneeId.HasValue && employeeAliasMap.TryGetValue(item.AssigneeId.Value, out var aliased)) return aliased;
 		if (item.AssigneeId.HasValue && allowExisting) return item.AssigneeId.Value;
 		if (employeeMap.TryGetValue("__unassigned", out var placeholder)) return placeholder;
 		throw new InvalidOperationException($"Task '{item.Name}' has no valid assignee.");
 	}
 
-	private static Guid ResolveTask(Guid? id, string? tempId, IReadOnlyDictionary<string, Guid> taskMap, Guid projectId)
+	private static Guid ResolveTask(Guid? id, string? tempId, IReadOnlyDictionary<string, Guid> taskMap, IReadOnlyDictionary<Guid, Guid> taskAliasMap, Guid projectId)
 	{
+		if (id.HasValue && taskAliasMap.TryGetValue(id.Value, out var aliased)) return aliased;
 		if (id.HasValue) return id.Value;
 		if (!string.IsNullOrWhiteSpace(tempId) && taskMap.TryGetValue(tempId, out var mapped)) return mapped;
 		throw new InvalidOperationException($"AI plan contains an unresolved task reference for project {projectId}.");
