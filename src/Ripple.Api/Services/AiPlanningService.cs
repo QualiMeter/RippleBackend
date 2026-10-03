@@ -95,7 +95,9 @@ public sealed class AiPlanningService(
 
 		db.AiPlans.Add(entity);
 		await db.SaveChangesAsync(ct);
-		return ToDto(entity, changes);
+		var dto = ToDto(entity, changes);
+		logger.LogInformation("AI plan persisted. PlanId={PlanId}, Operation={Operation}, Changes={ChangeCount}", dto.PlanId, dto.OperationType, dto.Changes.Count);
+		return dto;
 	}
 
 	public async Task<AiPlanDto?> GetPlanAsync(Guid planId, CancellationToken ct)

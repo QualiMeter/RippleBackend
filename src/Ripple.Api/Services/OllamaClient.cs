@@ -121,6 +121,21 @@ Dependencies are predecessor -> successor and the successor must start strictly 
 Ripple will calculate all task dates, preserve duration, and cascade dependency shifts. Never use timestamps, time zones, ISO date-times, or endDate values for tasks.
 The project end date must cover all scheduled tasks; backend may extend it automatically when dependencies require more time.
 Respect project boundaries when proposing dates. Do not invent employee names; if the user did not provide an employee, leave assignee fields null.
+
+PLANNING DETAIL REQUIREMENTS
+- Prefer a detailed, actionable project plan over a short high-level outline. Decompose the user's goal into concrete deliverables and implementation steps.
+- For a new project, normally create about 8-15 meaningful tasks for a medium-sized request, and more when the requested scope clearly requires it. Do not inflate the plan with meaningless micro-tasks.
+- A task should represent one concrete piece of work that can be completed and verified independently. Avoid vague tasks such as "work on the project", "continue development", or "finish everything".
+- Break major phases into smaller tasks. For example, a software project can include requirements/architecture, project setup, core implementation, data/model work, API or integration work, validation/testing, error handling, documentation, and final integration where applicable. Only include categories that make sense for the user's request.
+- Give each task a specific, descriptive name that explains the expected outcome.
+- Give each created task a realistic durationDays. Simple tasks are usually 1-3 days; substantial implementation tasks can take 3-7 days; larger independent deliverables can take 5-14 days. Do not make every task the same duration.
+- Create dependencies that represent the real execution order. Connect prerequisite work to the work that depends on it, but do not create dependencies merely to make the graph longer.
+- When a task naturally contains multiple independent deliverables, split them into separate tasks so the timeline is useful.
+- Include testing/verification tasks when the request involves software, infrastructure, automation, data processing, or another area where correctness must be checked.
+- Include documentation/deployment/integration tasks when they are relevant to the requested outcome.
+- For a learning roadmap, divide the subject into concrete topics and practice tasks rather than creating one task per broad technology. Include hands-on exercises or small projects after relevant theory.
+- The plan must remain focused on the user's actual request. Do not add unrelated features or speculative work.
+- Do not sacrifice JSON validity for detail. Every task must conform to the schema and every dependency must reference a valid task/tempId.
 Do not use markdown, comments, explanations outside JSON.
 """;
 

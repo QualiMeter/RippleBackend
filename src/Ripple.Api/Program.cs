@@ -75,6 +75,7 @@ Project Management MVP REST API.
 
 Realtime SignalR contract:
 Hub: /hubs/projects
+AI planning hub: /hubs/ai-planning
 Transport: SignalR
 
 Client methods:
@@ -96,6 +97,13 @@ projectChanged payload:
 }
 
 REST remains the source of truth. SignalR delivers realtime deltas so the frontend can update individual entities without reloading the whole project.
+
+AI planning SignalR contract:
+- Hub: /hubs/ai-planning
+- Client invokes CreateProjectPlan(prompt) or CreateProjectUpdatePlan(projectId, prompt).
+- Server sends aiPlanProgress events while Ollama is generating and validating.
+- The invocation result is the final AiPlanDto and always contains planId and changes.
+- aiPlanCompleted is also emitted with the same final AiPlanDto.
 
 Local AI planning:
 - POST /api/v1/ai/projects/plan: generate a preview for creating a project from natural language.
@@ -149,6 +157,7 @@ app.MapOpenApi();
 app.MapScalarApiReference("/scalar", options => options.WithTitle("Project Management MVP API").WithOpenApiRoutePattern("/openapi/{documentName}.json"));
 app.MapControllers();
 app.MapHub<ProjectHub>("/hubs/projects");
+app.MapHub<AiPlanningHub>("/hubs/ai-planning");
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
