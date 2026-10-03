@@ -1,9 +1,8 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Ripple.Api.Services;
 
-public sealed class AiPlanDocument
+internal sealed class AiRawPlanDocument
 {
 	[JsonPropertyName("operation")]
 	public string Operation { get; set; } = "";
@@ -12,66 +11,55 @@ public sealed class AiPlanDocument
 	public string Summary { get; set; } = "";
 
 	[JsonPropertyName("project")]
-	public AiProjectChange? Project { get; set; }
+	public AiRawProjectChange? Project { get; set; }
 
 	[JsonPropertyName("employees")]
-	public List<AiEmployeeChange> Employees { get; set; } = [];
+	public List<AiRawEmployeeChange> Employees { get; set; } = [];
 
 	[JsonPropertyName("tasks")]
-	public List<AiTaskChange> Tasks { get; set; } = [];
+	public List<AiRawTaskChange> Tasks { get; set; } = [];
 
 	[JsonPropertyName("dependencies")]
-	public List<AiDependencyChange> Dependencies { get; set; } = [];
+	public List<AiRawDependencyChange> Dependencies { get; set; } = [];
 }
 
-public sealed class AiProjectChange
+internal sealed class AiRawProjectChange
 {
-	public Guid? Id { get; set; }
+	public string? Id { get; set; }
 	public string? TempId { get; set; }
 	public string? Name { get; set; }
 	public string? StartDate { get; set; }
 	public string? EndDate { get; set; }
 }
 
-public sealed class AiEmployeeChange
+internal sealed class AiRawEmployeeChange
 {
 	public string Action { get; set; } = "create";
-	public Guid? Id { get; set; }
+	public string? Id { get; set; }
 	public string? TempId { get; set; }
 	public string? Name { get; set; }
 	public string? Phone { get; set; }
 	public string? Email { get; set; }
 }
 
-public sealed class AiTaskChange
+internal sealed class AiRawTaskChange
 {
 	public string Action { get; set; } = "create";
-	public Guid? Id { get; set; }
+	public string? Id { get; set; }
 	public string? TempId { get; set; }
 	public string? Name { get; set; }
 	public string? StartDate { get; set; }
 	public string? EndDate { get; set; }
 	public string? Status { get; set; }
-	public Guid? AssigneeId { get; set; }
+	public string? AssigneeId { get; set; }
 	public string? AssigneeTempId { get; set; }
 }
 
-public sealed class AiDependencyChange
+internal sealed class AiRawDependencyChange
 {
 	public string Action { get; set; } = "create";
-	public Guid? PredecessorTaskId { get; set; }
-	public Guid? SuccessorTaskId { get; set; }
+	public string? PredecessorTaskId { get; set; }
+	public string? SuccessorTaskId { get; set; }
 	public string? PredecessorTempId { get; set; }
 	public string? SuccessorTempId { get; set; }
 }
-
-public sealed record AiPlanContext(
-	object? Project,
-	IReadOnlyList<object> Employees,
-	IReadOnlyList<object> Tasks,
-	IReadOnlyList<object> Dependencies);
-
-public sealed record AiPlanBuildResult(AiPlanDocument Document, IReadOnlyList<Ripple.Api.Contracts.AiPlanChangeDto> Changes);
-
-public sealed record OllamaChatResponse(OllamaMessage Message, string? DoneReason);
-public sealed record OllamaMessage(string Role, string Content);

@@ -38,7 +38,7 @@ public sealed class AiPlanningService(
 		}
 
 		var document = await ollama.CreatePlanAsync(prompt, context, ct);
-		ValidateDocument(document, projectId);
+		await ValidateDocumentAsync(document, projectId, context, ct);
 		var contextHash = projectId.HasValue ? ComputeContextHash(context) : null;
 		var changes = await BuildPreviewChangesAsync(document, projectId, ct);
 
@@ -88,13 +88,18 @@ public sealed class AiPlanningService(
 			throw new InvalidOperationException("AI plan does not belong to this project.");
 
 		var document = Deserialize(plan.PlanJson);
-		ValidateDocument(document, plan.ProjectId);
+		AiPlanContext? currentContext = null;
 		if (plan.ProjectId.HasValue)
 		{
-			var currentContext = await BuildContextAsync(plan.ProjectId.Value, ct);
+			currentContext = await BuildContextAsync(plan.ProjectId.Value, ct);
+			await ValidateDocumentAsync(document, plan.ProjectId, currentContext, ct);
 			var currentHash = ComputeContextHash(currentContext);
 			if (!string.Equals(plan.ContextHash, currentHash, StringComparison.OrdinalIgnoreCase))
 				throw new InvalidOperationException("Project changed after the AI preview was created. Generate a new AI plan before confirming.");
+		}
+		else
+		{
+			await ValidateDocumentAsync(document, null, new AiPlanContext(null, [], [], []), ct);
 		}
 		var strategy = db.Database.CreateExecutionStrategy();
 
@@ -416,11 +421,176 @@ public sealed class AiPlanningService(
 
 	private static AiPlanDocument Deserialize(string json) => JsonSerializer.Deserialize<AiPlanDocument>(json, JsonOptions) ?? throw new InvalidOperationException("Stored AI plan is invalid.");
 
-	private static void ValidateDocument(AiPlanDocument document, Guid? projectId)
+	private async Task ValidateDocumentAsync(AiPlanDocument document, Guid? projectId, AiPlanContext context, CancellationToken ct)
 	{
-		if (document.Operation is not "create_project" and not "update_project") throw new InvalidOperationException("AI returned an unsupported operation.");
-		if (projectId.HasValue && document.Operation != "update_project") throw new InvalidOperationException("AI plan operation does not match the endpoint.");
-		if (!projectId.HasValue && document.Operation != "create_project") throw new InvalidOperationException("AI plan operation does not match the endpoint.");
+		if (document.Operation is not "create_project" and not "update_project")
+			throw new InvalidOperationException("AI returned an unsupported operation.");
+		if (projectId.HasValue && document.Operation != "update_project")
+			throw new InvalidOperationException("AI plan operation does not match the endpoint.");
+		if (!projectId.HasValue && document.Operation != "create_project")
+			throw new InvalidOperationException("AI plan operation does not match the endpoint.");
+
+		var project = projectId.HasValue
+			? await db.Projects.AsNoTracking().SingleAsync(x => x.Id == projectId.Value, ct)
+			: null;
+
+		var employeeIds = projectId.HasValue
+			? await db.Employees.AsNoTracking().Where(x => x.ProjectId == projectId.Value).Select(x => x.Id).ToHashSetAsync(ct)
+			: [];
+		var taskDates = projectId.HasValue
+			? await db.Tasks.AsNoTracking().Where(x => x.ProjectId == projectId.Value).Select(x => new { x.Id, x.StartDate, x.EndDate }).ToDictionaryAsync(x => x.Id, x => (x.StartDate, x.EndDate), ct)
+			: new Dictionary<Guid, (DateOnly StartDate, DateOnly EndDate)>();
+
+		var tempIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		void AddTemp(string? tempId, string field)
+		{
+			if (string.IsNullOrWhiteSpace(tempId)) return;
+			if (!tempIds.Add(tempId)) throw new InvalidOperationException($"AI plan contains duplicate tempId '{tempId}' ({field}).");
+		}
+
+		if (document.Operation == "create_project")
+		{
+			if (document.Project is null) throw new InvalidOperationException("AI create plan must contain project data.");
+			if (document.Project.Id.HasValue) throw new InvalidOperationException("A newly created project must not contain an id.");
+			AddTemp(document.Project.TempId, "project.tempId");
+			if (string.IsNullOrWhiteSpace(document.Project.Name)) throw new InvalidOperationException("AI create plan must contain a project name.");
+			var createProjectStart = ParseDate(document.Project.StartDate, "project.startDate");
+			var createProjectEnd = ParseDate(document.Project.EndDate, "project.endDate");
+			if (createProjectStart > createProjectEnd) throw new InvalidOperationException("AI plan has invalid project dates.");
+		}
+		else if (document.Project is not null && document.Project.Id.HasValue && projectId != document.Project.Id)
+		{
+			throw new InvalidOperationException("AI plan project.id does not match the requested project.");
+		}
+
+		foreach (var item in document.Employees)
+		{
+			var action = item.Action.ToLowerInvariant();
+			if (action == "create")
+			{
+				if (item.Id.HasValue) throw new InvalidOperationException("AI-created employees must have id=null.");
+				if (string.IsNullOrWhiteSpace(item.TempId) || string.IsNullOrWhiteSpace(item.Name)) throw new InvalidOperationException("Every AI-created employee must have a unique tempId and name.");
+				AddTemp(item.TempId, "employee.tempId");
+			}
+			else if (action is "update" or "delete")
+			{
+				if (!projectId.HasValue || !item.Id.HasValue || !employeeIds.Contains(item.Id.Value)) throw new InvalidOperationException("AI plan references an unknown employee ID.");
+			}
+			else throw new InvalidOperationException($"Unsupported employee action: {item.Action}");
+		}
+
+		var createdTaskDates = new Dictionary<string, (DateOnly Start, DateOnly End)>(StringComparer.OrdinalIgnoreCase);
+		foreach (var item in document.Tasks)
+		{
+			var action = item.Action.ToLowerInvariant();
+			if (action == "create")
+			{
+				if (item.Id.HasValue) throw new InvalidOperationException("AI-created tasks must have id=null.");
+				if (string.IsNullOrWhiteSpace(item.TempId) || string.IsNullOrWhiteSpace(item.Name)) throw new InvalidOperationException("Every AI-created task must have a unique tempId and name.");
+				AddTemp(item.TempId, "task.tempId");
+				var start = ParseDate(item.StartDate, $"task {item.TempId}.startDate");
+				var end = ParseDate(item.EndDate, $"task {item.TempId}.endDate");
+				if (start > end) throw new InvalidOperationException($"Task '{item.Name}' has invalid dates.");
+				createdTaskDates[item.TempId!] = (start, end);
+				if (item.AssigneeId.HasValue) throw new InvalidOperationException("New tasks must reference new employees with assigneeTempId, not assigneeId.");
+				if (item.AssigneeTempId is not null && !document.Employees.Any(x => x.Action.Equals("create", StringComparison.OrdinalIgnoreCase) && string.Equals(x.TempId, item.AssigneeTempId, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException($"Task '{item.Name}' references an unknown employee tempId.");
+				if (!string.IsNullOrWhiteSpace(item.Status)) _ = ParseStatus(item.Status);
+			}
+			else if (action is "update" or "delete")
+			{
+				if (!projectId.HasValue || !item.Id.HasValue || !taskDates.ContainsKey(item.Id.Value)) throw new InvalidOperationException("AI plan references an unknown task ID.");
+				if (action == "update")
+				{
+					if (!string.IsNullOrWhiteSpace(item.Status)) _ = ParseStatus(item.Status);
+					if (item.AssigneeId.HasValue && !employeeIds.Contains(item.AssigneeId.Value)) throw new InvalidOperationException("AI plan references an unknown assignee ID.");
+					if (item.AssigneeTempId is not null && !document.Employees.Any(x => x.Action.Equals("create", StringComparison.OrdinalIgnoreCase) && string.Equals(x.TempId, item.AssigneeTempId, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("AI plan references an unknown temporary assignee.");
+				}
+			}
+			else throw new InvalidOperationException($"Unsupported task action: {item.Action}");
+		}
+
+		if (project is not null)
+		{
+			var projectStart = project.StartDate;
+			var projectEnd = project.EndDate;
+			if (document.Project?.StartDate is not null) projectStart = ParseDate(document.Project.StartDate, "project.startDate");
+			if (document.Project?.EndDate is not null) projectEnd = ParseDate(document.Project.EndDate, "project.endDate");
+			if (projectStart > projectEnd) throw new InvalidOperationException("AI plan has invalid project dates.");
+			foreach (var item in document.Tasks.Where(x => x.Action.Equals("create", StringComparison.OrdinalIgnoreCase)))
+			{
+				var dates = createdTaskDates[item.TempId!];
+				if (dates.Start < projectStart || dates.End > projectEnd) throw new InvalidOperationException($"Task '{item.Name}' is outside project boundaries.");
+			}
+		}
+
+		var effectiveTaskDates = taskDates.ToDictionary(x => x.Key, x => x.Value);
+		var taskTempMap = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+		foreach (var item in document.Tasks.Where(x => x.Action.Equals("create", StringComparison.OrdinalIgnoreCase)))
+		{
+			var id = Guid.NewGuid();
+			taskTempMap[item.TempId!] = id;
+			effectiveTaskDates[id] = createdTaskDates[item.TempId!];
+		}
+		foreach (var item in document.Tasks.Where(x => x.Action.Equals("delete", StringComparison.OrdinalIgnoreCase)))
+			if (item.Id.HasValue) effectiveTaskDates.Remove(item.Id.Value);
+		foreach (var item in document.Tasks.Where(x => x.Action.Equals("update", StringComparison.OrdinalIgnoreCase)))
+		{
+			if (!item.Id.HasValue || !effectiveTaskDates.TryGetValue(item.Id.Value, out var current)) continue;
+			var start = item.StartDate is null ? current.StartDate : ParseDate(item.StartDate, $"task {item.Id}.startDate");
+			var end = item.EndDate is null ? current.EndDate : ParseDate(item.EndDate, $"task {item.Id}.endDate");
+			if (start > end) throw new InvalidOperationException($"Task '{item.Id}' has invalid dates.");
+			effectiveTaskDates[item.Id.Value] = (start, end);
+		}
+
+		if (project is not null)
+		{
+			var projectStart = document.Project?.StartDate is null ? project.StartDate : ParseDate(document.Project.StartDate, "project.startDate");
+			var projectEnd = document.Project?.EndDate is null ? project.EndDate : ParseDate(document.Project.EndDate, "project.endDate");
+			foreach (var task in effectiveTaskDates.Values)
+			{
+				if (task.Start < projectStart || task.End > projectEnd) throw new InvalidOperationException("AI plan contains a task outside project boundaries.");
+			}
+		}
+
+		Guid? ResolveValidationTask(Guid? id, string? tempId)
+		{
+			if (id.HasValue) return id.Value;
+			if (!string.IsNullOrWhiteSpace(tempId) && taskTempMap.TryGetValue(tempId, out var mapped)) return mapped;
+			return null;
+		}
+
+		var resultingDependencies = new HashSet<(Guid PredecessorTaskId, Guid SuccessorTaskId)>();
+		if (projectId.HasValue)
+		{
+			var existingDependencies = await db.TaskDependencies.AsNoTracking()
+				.Where(x => x.PredecessorTask.ProjectId == projectId.Value)
+				.Select(x => new { x.PredecessorTaskId, x.SuccessorTaskId })
+				.ToListAsync(ct);
+			foreach (var dependency in existingDependencies)
+				resultingDependencies.Add((dependency.PredecessorTaskId, dependency.SuccessorTaskId));
+		}
+
+		foreach (var item in document.Dependencies)
+		{
+			var action = item.Action.ToLowerInvariant();
+			if (action is not ("create" or "delete")) throw new InvalidOperationException($"Unsupported dependency action: {item.Action}");
+			var predecessor = ResolveValidationTask(item.PredecessorTaskId, item.PredecessorTempId);
+			var successor = ResolveValidationTask(item.SuccessorTaskId, item.SuccessorTempId);
+			if (!predecessor.HasValue || !successor.HasValue) throw new InvalidOperationException("AI dependency must reference both predecessor and successor.");
+			if (!effectiveTaskDates.ContainsKey(predecessor.Value)) throw new InvalidOperationException("AI dependency references an unknown predecessor task.");
+			if (!effectiveTaskDates.ContainsKey(successor.Value)) throw new InvalidOperationException("AI dependency references an unknown successor task.");
+			if (predecessor == successor) throw new InvalidOperationException("AI plan contains a self dependency.");
+			if (action == "create") resultingDependencies.Add((predecessor.Value, successor.Value));
+			else resultingDependencies.Remove((predecessor.Value, successor.Value));
+		}
+
+		foreach (var dependency in resultingDependencies)
+		{
+			if (!effectiveTaskDates.TryGetValue(dependency.PredecessorTaskId, out var predecessorDates) || !effectiveTaskDates.TryGetValue(dependency.SuccessorTaskId, out var successorDates)) continue;
+			if (successorDates.Start <= predecessorDates.End)
+				throw new InvalidOperationException($"AI plan violates dependency schedule: successor {dependency.SuccessorTaskId} must start after predecessor {dependency.PredecessorTaskId} ends ({predecessorDates.End:yyyy-MM-dd}).");
+		}
+
 	}
 
 	private async Task EnsureProjectOwnerAsync(Guid projectId, Guid userId, CancellationToken ct)

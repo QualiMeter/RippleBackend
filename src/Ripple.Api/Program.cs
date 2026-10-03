@@ -23,8 +23,6 @@ builder.Services.AddCors(options =>
 	var origins = configuredOrigins
 		.Concat([
 			"https://ripple-azure-one.vercel.app",
-			"https://ripple.rebyte.fun",
-			"http://ripple.rebyte.fun",
 			"http://localhost",
 			"https://localhost",
 			"http://localhost:3000",
