@@ -671,13 +671,36 @@ public sealed class AiPlanningService(
 			}
 		}
 
+		// Check the final normalized schedule against the project boundaries for BOTH
+		// existing-project updates and new-project creation. Previously this check only
+		// ran when `project` existed in the database, so a create_project plan could pass
+		// preview with a dependency repair that pushed a task past the new project's end.
+		// ApplyCreateAsync then rejected that same task during confirmation.
+		DateOnly? finalProjectStart = null;
+		DateOnly? finalProjectEnd = null;
 		if (project is not null)
 		{
-			var projectStart = document.Project?.StartDate is null ? project.StartDate : ParseDate(document.Project.StartDate, "project.startDate");
-			var projectEnd = document.Project?.EndDate is null ? project.EndDate : ParseDate(document.Project.EndDate, "project.endDate");
+			finalProjectStart = document.Project?.StartDate is null
+				? project.StartDate
+				: ParseDate(document.Project.StartDate, "project.startDate");
+			finalProjectEnd = document.Project?.EndDate is null
+				? project.EndDate
+				: ParseDate(document.Project.EndDate, "project.endDate");
+		}
+		else if (document.Operation == "create_project" && document.Project is not null)
+		{
+			finalProjectStart = ParseDate(document.Project.StartDate, "project.startDate");
+			finalProjectEnd = ParseDate(document.Project.EndDate, "project.endDate");
+		}
+
+		if (finalProjectStart.HasValue && finalProjectEnd.HasValue)
+		{
+			if (finalProjectStart.Value > finalProjectEnd.Value)
+				throw new InvalidOperationException("AI plan has invalid project dates.");
+
 			foreach (var task in effectiveTaskDates.Values)
 			{
-				if (task.StartDate < projectStart || task.EndDate > projectEnd)
+				if (task.StartDate < finalProjectStart.Value || task.EndDate > finalProjectEnd.Value)
 					throw new InvalidOperationException("AI plan cannot satisfy dependency dates without exceeding project boundaries.");
 			}
 		}
