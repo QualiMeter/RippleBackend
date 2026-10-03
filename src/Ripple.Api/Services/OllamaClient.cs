@@ -172,7 +172,9 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		{
 			model = options.Value.Model,
 			stream = true,
-			think = false,
+			// Qwen3 thinking is intentionally kept internal. We stream safe progress
+			// updates to the UI instead of exposing private chain-of-thought.
+			think = true,
 			keep_alive = options.Value.KeepAlive,
 			messages = new[]
 			{
@@ -201,6 +203,8 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		using var reader = new StreamReader(stream);
 		var content = new StringBuilder();
 		var received = 0;
+		var done = false;
+		string? doneReason = null;
 
 		while (!reader.EndOfStream)
 		{
@@ -217,6 +221,12 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 				continue;
 			}
 
+			if (chunk is not null)
+			{
+				done |= chunk.Done;
+				doneReason = chunk.DoneReason ?? doneReason;
+			}
+
 			var piece = chunk?.Message?.Content;
 			if (!string.IsNullOrEmpty(piece))
 			{
@@ -229,6 +239,13 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 
 		if (content.Length == 0)
 			throw new InvalidOperationException("Ollama returned an empty plan.");
+
+		if (doneReason is "length" or "max_tokens")
+		{
+			logger.LogWarning("Ollama generation reached num_predict limit. Received {Characters} characters.", received);
+			if (onProgress is not null)
+				await onProgress("generation_limit", Math.Min(75, 20 + received / 80), "ИИ не успел завершить JSON-план: увеличен лимит генерации.");
+		}
 
 		var planJson = content.ToString();
 		logger.LogInformation("Ollama returned AI plan JSON: {PlanJson}", planJson);

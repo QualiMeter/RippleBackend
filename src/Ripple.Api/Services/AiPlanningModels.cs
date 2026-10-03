@@ -75,5 +75,5 @@ public sealed record AiProgressUpdate(string Stage, int Progress, string Message
 
 public sealed record AiPlanBuildResult(AiPlanDocument Document, IReadOnlyList<Ripple.Api.Contracts.AiPlanChangeDto> Changes);
 
-public sealed record OllamaChatResponse(OllamaMessage Message);
-public sealed record OllamaMessage(string Role, string Content);
+public sealed record OllamaChatResponse(OllamaMessage Message, bool Done = false, string? DoneReason = null);
+public sealed record OllamaMessage(string Role, string Content, string? Thinking = null);

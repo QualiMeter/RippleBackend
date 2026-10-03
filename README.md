@@ -189,9 +189,9 @@ Default configuration:
 ```text
 Ollama__BaseUrl=http://127.0.0.1:11434
 Ollama__Model=qwen3:4b
-Ollama__NumCtx=4096
+Ollama__NumCtx=8192
 Ollama__NumThread=2
-Ollama__NumPredict=1536
+Ollama__NumPredict=4096
 Ollama__TimeoutSeconds=600
 Ollama__KeepAlive=5m
 ```
