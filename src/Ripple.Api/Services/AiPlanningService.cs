@@ -66,6 +66,11 @@ public sealed class AiPlanningService(
 		logger.LogDebug("AI normalized plan: {PlanJson}", JsonSerializer.Serialize(document, JsonOptions));
 		var contextHash = projectId.HasValue ? ComputeContextHash(context) : null;
 		var changes = await BuildPreviewChangesAsync(document, projectId, ct);
+		logger.LogInformation("AI preview changes built. Operation={Operation}, ProjectId={ProjectId}, Changes={ChangeCount}, Creates={CreateCount}, Updates={UpdateCount}, Deletes={DeleteCount}",
+			document.Operation, projectId, changes.Count,
+			changes.Count(x => x.Action == "create"),
+			changes.Count(x => x.Action == "update"),
+			changes.Count(x => x.Action == "delete"));
 
 		if (projectId.HasValue && !string.Equals(document.Operation, "update_project", StringComparison.OrdinalIgnoreCase))
 			throw new InvalidOperationException("An existing project can only receive an update_project AI plan.");
