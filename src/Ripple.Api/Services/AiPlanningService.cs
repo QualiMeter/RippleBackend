@@ -479,7 +479,7 @@ public sealed class AiPlanningService(
 			else throw new InvalidOperationException($"Unsupported employee action: {item.Action}");
 		}
 
-		var createdTaskDates = new Dictionary<string, (DateOnly Start, DateOnly End)>(StringComparer.OrdinalIgnoreCase);
+		var createdTaskDates = new Dictionary<string, (DateOnly StartDate, DateOnly EndDate)>(StringComparer.OrdinalIgnoreCase);
 		foreach (var item in document.Tasks)
 		{
 			var action = item.Action.ToLowerInvariant();
