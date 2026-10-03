@@ -50,8 +50,10 @@ jobs:
 
       - name: Deploy
         run: |
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "mkdir -p /var/www/ripple/backend"
           tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "rm -rf /var/www/api/* && tar -C /var/www/api -xf -"
+            "rm -rf /var/www/ripple/backend/* && tar -C /var/www/ripple/backend -xf -"
 
       - name: Start backend
         if: always()
@@ -61,5 +63,22 @@ jobs:
 
       - name: Check backend
         run: |
-          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "sudo -n systemctl is-active ripple-api"
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" 'bash -s' <<'REMOTE'
+          for i in $(seq 1 30); do
+            state=$(sudo -n systemctl is-active ripple-api || true)
+            if [ "$state" = "active" ]; then
+              echo "ripple-api is active"
+              exit 0
+            fi
+            if [ "$state" = "failed" ]; then
+              echo "ripple-api failed to start" >&2
+              sudo -n systemctl status ripple-api --no-pager || true
+              exit 1
+            fi
+            echo "ripple-api state: $state; waiting..."
+            sleep 1
+          done
+          echo "ripple-api did not become active within 30 seconds" >&2
+          sudo -n systemctl status ripple-api --no-pager || true
+          exit 1
+          REMOTE
