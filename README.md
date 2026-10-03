@@ -189,7 +189,7 @@ Default configuration:
 ```text
 Ollama__BaseUrl=http://127.0.0.1:11434
 Ollama__Model=qwen3:4b
-Ollama__TimeoutSeconds=120
+Ollama__TimeoutSeconds=600
 ```
 
 If the API runs in Docker and Ollama runs in the included Compose service, set:
