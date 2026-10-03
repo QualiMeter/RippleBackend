@@ -172,9 +172,10 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		{
 			model = options.Value.Model,
 			stream = true,
-			// Qwen3 thinking is intentionally kept internal. We stream safe progress
-			// updates to the UI instead of exposing private chain-of-thought.
-			think = true,
+			// Qwen3 thinking is disabled for planning requests. The backend needs the structured
+			// plan itself, not private chain-of-thought, and disabling reasoning greatly reduces
+			// CPU generation time on the server.
+			think = options.Value.Think,
 			keep_alive = options.Value.KeepAlive,
 			messages = new[]
 			{
