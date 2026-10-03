@@ -51,7 +51,12 @@ jobs:
       - name: Verify service deployment directory
         run: |
           ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            'test "$(sudo systemctl show ripple-api -p WorkingDirectory --value)" = "/var/www/ripple/backend"'
+            "grep -Fx 'WorkingDirectory=/var/www/ripple/backend' /etc/systemd/system/ripple-api.service >/dev/null"
+
+      - name: Create deployment marker
+        run: |
+          printf '%s\n' "${GITHUB_SHA}" > publish/deploy-commit.txt
+          printf '%s\n' "ai-schedule-v3-2026-10-03" > publish/ai-schedule-build.txt
 
       - name: Deploy
         run: |
@@ -61,7 +66,7 @@ jobs:
       - name: Verify deployed build
         run: |
           ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "grep -a -F 'ai-schedule-v3-2026-10-03' /var/www/ripple/backend/Ripple.Api.dll >/dev/null"
+            "test -s /var/www/ripple/backend/Ripple.Api.dll && test \"\$(cat /var/www/ripple/backend/deploy-commit.txt)\" = \"${GITHUB_SHA}\" && test \"\$(cat /var/www/ripple/backend/ai-schedule-build.txt)\" = \"ai-schedule-v3-2026-10-03\""
 
       - name: Start backend
         if: always()
