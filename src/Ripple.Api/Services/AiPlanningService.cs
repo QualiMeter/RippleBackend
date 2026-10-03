@@ -18,7 +18,7 @@ public sealed class AiPlanningService(
 	IRealtimeNotifier realtime,
 	ILogger<AiPlanningService> logger)
 {
-	private const string BuildMarker = "ai-schedule-v4-duration-days-2026-10-03";
+	private const string BuildMarker = "ai-schedule-v5-runtime-date-2026-10-03";
 
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
 	{
@@ -392,7 +392,7 @@ public sealed class AiPlanningService(
 		}
 		else
 		{
-			initialProjectStart = DateOnly.FromDateTime(DateTime.UtcNow);
+			initialProjectStart = DateOnly.FromDateTime(DateTime.Now);
 		}
 
 		foreach (var item in document.Tasks)
@@ -500,7 +500,7 @@ public sealed class AiPlanningService(
 				document.Project = new AiProjectChange();
 			if (projectId is null)
 			{
-				var today = DateOnly.FromDateTime(DateTime.UtcNow);
+				var today = DateOnly.FromDateTime(DateTime.Now);
 				if (document.Project.StartDate is null) document.Project.StartDate = today.ToString("yyyy-MM-dd");
 				if (document.Project.EndDate is null) document.Project.EndDate = document.Project.StartDate;
 			}

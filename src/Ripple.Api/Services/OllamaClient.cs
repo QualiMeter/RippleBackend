@@ -123,8 +123,26 @@ Respect project boundaries when proposing dates. Do not invent employee names; i
 Do not use markdown, comments, explanations outside JSON.
 """;
 
+		var now = DateTime.Now;
+		var currentDate = now.ToString("yyyy-MM-dd");
+		var currentDateTime = now.ToString("yyyy-MM-dd HH:mm:ss");
+		var currentYear = now.Year;
+		var currentTimeZoneOffset = now.ToString("zzz");
+
 		var contextJson = JsonSerializer.Serialize(context, JsonOptions);
 		var user = $"""
+RUNTIME DATE/TIME — AUTHORITATIVE
+================================
+Current local date: {currentDate}
+Current local year: {currentYear}
+Current local date/time: {currentDateTime}
+Local UTC offset: {currentTimeZoneOffset}
+
+These values are provided directly by the Ripple backend runtime. They are authoritative.
+Do not infer the current date or year from training data.
+If the user says today, tomorrow, yesterday, next week, next month, this year, or similar relative date, calculate it from CURRENT local date above.
+Do not assume the year is 2023, 2024, or any other year unless the user explicitly requests a historical date.
+
 USER REQUEST:
 {prompt}
 
