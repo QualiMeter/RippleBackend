@@ -1,12 +1,13 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using System.Text;
 
 namespace Ripple.Api.Services;
 
 public interface IOllamaClient
 {
-	Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct);
+	Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct, Func<string, int, Task>? onProgress = null);
 }
 
 public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> options, ILogger<OllamaClient> logger) : IOllamaClient
@@ -105,7 +106,7 @@ public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> option
 		}
 	};
 
-	public async Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct)
+	public async Task<AiPlanDocument> CreatePlanAsync(string prompt, AiPlanContext context, CancellationToken ct, Func<string, int, Task>? onProgress = null)
 	{
 		if (string.IsNullOrWhiteSpace(prompt))
 			throw new ArgumentException("AI prompt is required.");
@@ -155,7 +156,7 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		var request = new
 		{
 			model = options.Value.Model,
-			stream = false,
+			stream = true,
 			think = false,
 			keep_alive = "10m",
 			messages = new[]
@@ -168,34 +169,58 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		};
 
 		using var response = await http.PostAsJsonAsync("api/chat", request, JsonOptions, ct);
-		var body = await response.Content.ReadAsStringAsync(ct);
 		if (!response.IsSuccessStatusCode)
-			throw new InvalidOperationException($"Ollama request failed ({(int)response.StatusCode}): {body}");
-
-		OllamaChatResponse? result;
-		try
 		{
-			result = JsonSerializer.Deserialize<OllamaChatResponse>(body, JsonOptions);
-		}
-		catch (JsonException ex)
-		{
-			logger.LogError(ex, "Failed to parse Ollama response.");
-			throw new InvalidOperationException("Ollama returned an invalid response.");
+			var errorBody = await response.Content.ReadAsStringAsync(ct);
+			throw new InvalidOperationException($"Ollama request failed ({(int)response.StatusCode}): {errorBody}");
 		}
 
-		if (result?.Message is null || string.IsNullOrWhiteSpace(result.Message.Content))
+		if (onProgress is not null) await onProgress("ollama_started", 0);
+		await using var stream = await response.Content.ReadAsStreamAsync(ct);
+		using var reader = new StreamReader(stream);
+		var content = new StringBuilder();
+		var received = 0;
+
+		while (!reader.EndOfStream)
+		{
+			var line = await reader.ReadLineAsync(ct);
+			if (string.IsNullOrWhiteSpace(line)) continue;
+
+			OllamaChatResponse? chunk;
+			try
+			{
+				chunk = JsonSerializer.Deserialize<OllamaChatResponse>(line, JsonOptions);
+			}
+			catch (JsonException)
+			{
+				continue;
+			}
+
+			var piece = chunk?.Message?.Content;
+			if (!string.IsNullOrEmpty(piece))
+			{
+				content.Append(piece);
+				received += piece.Length;
+				if (received % 160 < piece.Length)
+					if (onProgress is not null) await onProgress("generating", received);
+			}
+		}
+
+		if (content.Length == 0)
 			throw new InvalidOperationException("Ollama returned an empty plan.");
 
-		logger.LogInformation("Ollama returned AI plan JSON: {PlanJson}", result.Message.Content);
+		var planJson = content.ToString();
+		logger.LogInformation("Ollama returned AI plan JSON: {PlanJson}", planJson);
+		if (onProgress is not null) await onProgress("response_received", received);
 
 		try
 		{
-			return JsonSerializer.Deserialize<AiPlanDocument>(result.Message.Content, JsonOptions)
+			return JsonSerializer.Deserialize<AiPlanDocument>(planJson, JsonOptions)
 				?? throw new InvalidOperationException("Ollama returned an empty plan.");
 		}
 		catch (JsonException ex)
 		{
-			logger.LogError(ex, "Ollama returned malformed plan JSON: {Content}", result.Message.Content);
+			logger.LogError(ex, "Ollama returned malformed plan JSON: {Content}", planJson);
 			throw new InvalidOperationException("Ollama returned a plan that could not be parsed.");
 		}
 	}

@@ -30,7 +30,7 @@ public sealed class AiPlanningService(
 		JsonOptions.Converters.Add(new AiGuidJsonConverter());
 	}
 
-	public async Task<AiPlanDto> CreatePlanAsync(Guid? projectId, string prompt, CancellationToken ct)
+	public async Task<AiPlanDto> CreatePlanAsync(Guid? projectId, string prompt, CancellationToken ct, Func<AiProgressUpdate, Task>? onProgress = null)
 	{
 		logger.LogInformation("AI planning build marker: {BuildMarker}", BuildMarker);
 		var userId = await currentUser.GetUserIdAsync(ct);
@@ -46,10 +46,21 @@ public sealed class AiPlanningService(
 			context = new AiPlanContext(null, [], [], []);
 		}
 
-		var document = await ollama.CreatePlanAsync(prompt, context, ct);
+		await ReportAsync(onProgress, "context_ready", 15, "Контекст проекта подготовлен");
+		var document = await ollama.CreatePlanAsync(prompt, context, ct, async (stage, received) =>
+		{
+			if (stage == "ollama_started")
+				await ReportAsync(onProgress, stage, 20, "ИИ формирует план");
+			else if (stage == "generating")
+				await ReportAsync(onProgress, stage, Math.Min(75, 20 + received / 80), "Получаю результат ИИ");
+			else if (stage == "response_received")
+				await ReportAsync(onProgress, stage, 78, "Ответ ИИ получен, проверяю структуру");
+		});
+		await ReportAsync(onProgress, "validating", 82, "Проверяю план");
 		ValidateDocument(document, projectId);
 		logger.LogInformation("AI plan generated. Operation={Operation}, ProjectId={ProjectId}, Tasks={TaskCount}, Dependencies={DependencyCount}", document.Operation, projectId, document.Tasks.Count, document.Dependencies.Count);
 		logger.LogDebug("AI raw normalized-input plan: {PlanJson}", JsonSerializer.Serialize(document, JsonOptions));
+		await ReportAsync(onProgress, "normalizing", 88, "Рассчитываю сроки и зависимости");
 		await NormalizeAiScheduleAsync(document, projectId, context, ct);
 		logger.LogInformation("AI plan schedule normalized. Project={ProjectStart}->{ProjectEnd}, Tasks={TaskCount}, Dependencies={DependencyCount}", document.Project?.StartDate, document.Project?.EndDate, document.Tasks.Count, document.Dependencies.Count);
 		logger.LogDebug("AI normalized plan: {PlanJson}", JsonSerializer.Serialize(document, JsonOptions));
@@ -60,6 +71,8 @@ public sealed class AiPlanningService(
 			throw new InvalidOperationException("An existing project can only receive an update_project AI plan.");
 		if (!projectId.HasValue && !string.Equals(document.Operation, "create_project", StringComparison.OrdinalIgnoreCase))
 			throw new InvalidOperationException("A new AI plan must create a project.");
+
+		await ReportAsync(onProgress, "preview", 95, "Готовлю предпросмотр изменений");
 
 		var entity = new AiPlan
 		{
@@ -742,6 +755,12 @@ public sealed class AiPlanningService(
 		}
 
 		return changes;
+	}
+
+	private static async Task ReportAsync(Func<AiProgressUpdate, Task>? callback, string stage, int progress, string message)
+	{
+		if (callback is not null)
+			await callback(new AiProgressUpdate(stage, Math.Clamp(progress, 0, 100), message));
 	}
 
 	private static AiPlanDto ToDto(AiPlan plan, IReadOnlyList<AiPlanChangeDto> changes) => new(
