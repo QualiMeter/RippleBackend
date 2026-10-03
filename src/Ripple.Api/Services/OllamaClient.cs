@@ -158,14 +158,20 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 			model = options.Value.Model,
 			stream = true,
 			think = false,
-			keep_alive = "10m",
+			keep_alive = options.Value.KeepAlive,
 			messages = new[]
 			{
 				new { role = "system", content = system },
 				new { role = "user", content = user }
 			},
 			format = OutputSchema,
-			options = new { temperature = 0.1, num_ctx = 8192, num_predict = 2048 }
+			options = new
+			{
+				temperature = 0.1,
+				num_ctx = options.Value.NumCtx,
+				num_thread = options.Value.NumThread,
+				num_predict = options.Value.NumPredict
+			}
 		};
 
 		using var response = await http.PostAsJsonAsync("api/chat", request, JsonOptions, ct);
