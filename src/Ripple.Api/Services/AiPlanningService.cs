@@ -584,11 +584,102 @@ public sealed class AiPlanningService(
 			else resultingDependencies.Remove((predecessor.Value, successor.Value));
 		}
 
+		// Normalize the resulting schedule before accepting the AI plan.
+		// The model can understand the dependency rule but may still return overlapping
+		// dates. The backend is authoritative: move a conflicting successor to the
+		// first valid day and preserve its duration. The same logic is then propagated
+		// through the dependency graph, so chains are repaired as a whole.
+		var outgoing = effectiveTaskDates.Keys.ToDictionary(x => x, _ => new List<Guid>());
+		var indegree = effectiveTaskDates.Keys.ToDictionary(x => x, _ => 0);
+
 		foreach (var dependency in resultingDependencies)
 		{
-			if (!effectiveTaskDates.TryGetValue(dependency.PredecessorTaskId, out var predecessorDates) || !effectiveTaskDates.TryGetValue(dependency.SuccessorTaskId, out var successorDates)) continue;
-			if (successorDates.StartDate <= predecessorDates.EndDate)
-				throw new InvalidOperationException($"AI plan violates dependency schedule: successor {dependency.SuccessorTaskId} must start after predecessor {dependency.PredecessorTaskId} ends ({predecessorDates.EndDate:yyyy-MM-dd}).");
+			if (!effectiveTaskDates.ContainsKey(dependency.PredecessorTaskId) || !effectiveTaskDates.ContainsKey(dependency.SuccessorTaskId))
+				continue;
+
+			if (!outgoing[dependency.PredecessorTaskId].Contains(dependency.SuccessorTaskId))
+			{
+				outgoing[dependency.PredecessorTaskId].Add(dependency.SuccessorTaskId);
+				indegree[dependency.SuccessorTaskId]++;
+			}
+		}
+
+		var queue = new Queue<Guid>(indegree.Where(x => x.Value == 0).Select(x => x.Key));
+		var topologicalOrder = new List<Guid>(effectiveTaskDates.Count);
+		while (queue.Count > 0)
+		{
+			var taskId = queue.Dequeue();
+			topologicalOrder.Add(taskId);
+			foreach (var successorId in outgoing[taskId])
+			{
+				if (--indegree[successorId] == 0)
+					queue.Enqueue(successorId);
+			}
+		}
+
+		if (topologicalOrder.Count != effectiveTaskDates.Count)
+			throw new InvalidOperationException("AI plan contains a dependency cycle; the schedule cannot be normalized.");
+
+		var taskChangesById = document.Tasks
+			.Where(x => string.Equals(x.Action, "update", StringComparison.OrdinalIgnoreCase) && x.Id.HasValue)
+			.ToDictionary(x => x.Id!.Value);
+
+		foreach (var taskId in topologicalOrder)
+		{
+			foreach (var successorId in outgoing[taskId])
+			{
+				var predecessorDates = effectiveTaskDates[taskId];
+				var successorDates = effectiveTaskDates[successorId];
+				var requiredStart = DependencyScheduleRules.RequiredSuccessorStart(predecessorDates.EndDate);
+
+				if (successorDates.StartDate >= requiredStart)
+					continue;
+
+				var durationDays = successorDates.EndDate.DayNumber - successorDates.StartDate.DayNumber;
+				var newStart = requiredStart;
+				var newEnd = newStart.AddDays(durationDays);
+				effectiveTaskDates[successorId] = (newStart, newEnd);
+
+				// For an existing task in an update plan, make the backend-generated
+				// schedule repair part of the plan so ApplyUpdateAsync persists it.
+				if (taskDates.ContainsKey(successorId))
+				{
+					if (!taskChangesById.TryGetValue(successorId, out var change))
+					{
+						change = new AiTaskChange
+						{ Action = "update", Id = successorId };
+						document.Tasks.Add(change);
+						taskChangesById[successorId] = change;
+					}
+
+					change.StartDate = newStart.ToString("yyyy-MM-dd");
+					change.EndDate = newEnd.ToString("yyyy-MM-dd");
+				}
+				else
+				{
+					var created = document.Tasks.FirstOrDefault(x =>
+						string.Equals(x.Action, "create", StringComparison.OrdinalIgnoreCase) &&
+						!string.IsNullOrWhiteSpace(x.TempId) &&
+						taskTempMap.TryGetValue(x.TempId!, out var mappedId) &&
+						mappedId == successorId);
+					if (created is not null)
+					{
+						created.StartDate = newStart.ToString("yyyy-MM-dd");
+						created.EndDate = newEnd.ToString("yyyy-MM-dd");
+					}
+				}
+			}
+		}
+
+		if (project is not null)
+		{
+			var projectStart = document.Project?.StartDate is null ? project.StartDate : ParseDate(document.Project.StartDate, "project.startDate");
+			var projectEnd = document.Project?.EndDate is null ? project.EndDate : ParseDate(document.Project.EndDate, "project.endDate");
+			foreach (var task in effectiveTaskDates.Values)
+			{
+				if (task.StartDate < projectStart || task.EndDate > projectEnd)
+					throw new InvalidOperationException("AI plan cannot satisfy dependency dates without exceeding project boundaries.");
+			}
 		}
 
 	}
