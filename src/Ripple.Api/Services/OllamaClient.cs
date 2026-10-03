@@ -68,7 +68,7 @@ public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> option
 				{
 					type = "object",
 					additionalProperties = false,
-					required = new[] { "action", "id", "tempId", "name", "startDate", "endDate", "status", "assigneeId", "assigneeTempId" },
+					required = new[] { "action", "id", "tempId", "name", "startDate", "endDate", "durationDays", "status", "assigneeId", "assigneeTempId" },
 					properties = new
 					{
 						action = new { type = "string", @enum = new[] { "create", "update", "delete" } },
@@ -77,6 +77,7 @@ public sealed class OllamaClient(HttpClient http, IOptions<OllamaOptions> option
 						name = new { type = new[] { "string", "null" } },
 						startDate = new { type = new[] { "string", "null" } },
 						endDate = new { type = new[] { "string", "null" } },
+						durationDays = new { type = new[] { "integer", "null" }, minimum = 1 },
 						status = new { type = new[] { "string", "null" } },
 						assigneeId = new { type = new[] { "string", "null" } },
 						assigneeTempId = new { type = new[] { "string", "null" } }
@@ -114,10 +115,10 @@ You are Ripple's project planning engine. Return only the JSON object required b
 You do not execute changes and you must never invent existing IDs.
 For update_project, use only IDs present in the supplied project context.
 For create_project, IDs for new employees/tasks/projects are not domain GUIDs. You may use simple unique placeholder strings such as employee_1 and task_1. Always use tempId as the canonical reference for newly created entities. Never put a task_* value into an employee tempId or an employee_* value into a task tempId. For a new task assignee, prefer assigneeTempId with the exact employee tempId and leave assigneeId null. For a new dependency, prefer predecessorTempId/successorTempId with the exact task tempIds and leave predecessorTaskId/successorTaskId null.
-Dates must use ISO format YYYY-MM-DD. Status must be one of NotStarted, InProgress, Completed, Delayed.
-Dependencies are predecessor -> successor and the successor must start strictly after the predecessor end date.
-Ripple will normalize dependency dates after generation, preserving task duration and cascading shifts to successors.
-The project end date must cover all scheduled tasks; if the requested work requires a later end, propose that later project end explicitly.
+Project dates must use ISO format YYYY-MM-DD. For TASKS, do NOT calculate or invent endDate. The only scheduling value Qwen should provide for a task is durationDays: a positive integer counting calendar days INCLUDING both the start and end day (1 means a one-day task). startDate may be provided only when the user explicitly specified a task start; otherwise leave task startDate and endDate null. Backend C# is authoritative for task dates and calculates endDate from startDate + durationDays - 1. For updates, durationDays means the desired new task duration; if durationDays is null, preserve the existing duration. Status must be one of NotStarted, InProgress, Completed, Delayed.
+Dependencies are predecessor -> successor and the successor must start strictly on the next calendar day after the predecessor end date. Always include every dependency explicitly required by the user's wording or implied by a clear sequence such as "design, then development, then testing".
+Ripple will calculate all task dates, preserve duration, and cascade dependency shifts. Never use timestamps, time zones, ISO date-times, or endDate values for tasks.
+The project end date must cover all scheduled tasks; backend may extend it automatically when dependencies require more time.
 Respect project boundaries when proposing dates. Do not invent employee names; if the user did not provide an employee, leave assignee fields null.
 Do not use markdown, comments, explanations outside JSON.
 """;
@@ -130,7 +131,7 @@ USER REQUEST:
 CURRENT RIPPLE CONTEXT:
 {contextJson}
 
-Produce a proposed plan. For update_project, null fields mean 'leave unchanged'. If changing only an existing task's startDate, leave endDate null so Ripple preserves the existing task duration. If changing only endDate, leave startDate null unless the user explicitly requested a start-date change.
+Produce a proposed plan. For update_project, null fields mean 'leave unchanged'. For every created task, provide durationDays and use startDate only when the user explicitly specified its start. Always leave task endDate null; the backend calculates it. For an existing task, use durationDays only when the user asks to change its duration. If the user asks to move a task without changing its duration, provide startDate and leave durationDays null. Never output a task endDate.
 """;
 
 		var request = new

@@ -50,6 +50,7 @@ public sealed class AiTaskChange
 	public string? Name { get; set; }
 	public string? StartDate { get; set; }
 	public string? EndDate { get; set; }
+	public int? DurationDays { get; set; }
 	public string? Status { get; set; }
 	public Guid? AssigneeId { get; set; }
 	public string? AssigneeTempId { get; set; }

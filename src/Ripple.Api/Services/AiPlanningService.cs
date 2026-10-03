@@ -18,7 +18,7 @@ public sealed class AiPlanningService(
 	IRealtimeNotifier realtime,
 	ILogger<AiPlanningService> logger)
 {
-	private const string BuildMarker = "ai-schedule-v3-2026-10-03";
+	private const string BuildMarker = "ai-schedule-v4-duration-days-2026-10-03";
 
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
 	{
@@ -380,6 +380,21 @@ public sealed class AiPlanningService(
 			}
 		}
 
+		DateOnly initialProjectStart;
+		if (projectId.HasValue)
+		{
+			initialProjectStart = (await db.Projects.AsNoTracking().Where(x => x.Id == projectId.Value).Select(x => (DateOnly?)x.StartDate).SingleAsync(ct))
+				?? throw new KeyNotFoundException("Project not found.");
+		}
+		else if (document.Project?.StartDate is not null)
+		{
+			initialProjectStart = ParseDate(document.Project.StartDate, "project.startDate");
+		}
+		else
+		{
+			initialProjectStart = DateOnly.FromDateTime(DateTime.UtcNow);
+		}
+
 		foreach (var item in document.Tasks)
 		{
 			if (!string.Equals(item.Action, "create", StringComparison.OrdinalIgnoreCase) &&
@@ -394,23 +409,56 @@ public sealed class AiPlanningService(
 			{
 				if (string.Equals(item.Action, "create", StringComparison.OrdinalIgnoreCase))
 				{
-					if (string.IsNullOrWhiteSpace(item.StartDate) || string.IsNullOrWhiteSpace(item.EndDate))
-						continue;
-					task = new ScheduleTask(key, item.Name ?? key, ParseDate(item.StartDate, $"task {key}.startDate"), ParseDate(item.EndDate, $"task {key}.endDate"), true, key);
+					var start = string.IsNullOrWhiteSpace(item.StartDate)
+						? initialProjectStart
+						: ParseDate(item.StartDate, $"task {key}.startDate");
+
+					DateOnly end;
+					if (item.DurationDays is > 0)
+					{
+						end = start.AddDays(item.DurationDays.Value - 1);
+					}
+					else if (!string.IsNullOrWhiteSpace(item.EndDate))
+					{
+						// Backward-compatible fallback for plans produced by older prompts.
+						end = ParseDate(item.EndDate, $"task {key}.endDate");
+					}
+					else
+					{
+						throw new InvalidOperationException($"AI task '{item.Name ?? key}' must contain durationDays.");
+					}
+
+					if (start > end)
+						throw new InvalidOperationException($"AI plan has invalid dates for task '{item.Name ?? key}'.");
+					task = new ScheduleTask(key, item.Name ?? key, start, end, true, key);
 					tasks[key] = task;
 				}
 				continue;
 			}
 
 			var startWasChanged = item.StartDate is not null;
+			var durationWasChanged = item.DurationDays.HasValue;
 			var endWasChanged = item.EndDate is not null;
 			var originalDuration = task.End.DayNumber - task.Start.DayNumber;
 			if (startWasChanged)
 				task.Start = ParseDate(item.StartDate, $"task {key}.startDate");
-			if (endWasChanged)
-				task.End = ParseDate(item.EndDate, $"task {key}.endDate");
-			if (startWasChanged && !endWasChanged)
+
+			if (durationWasChanged)
+			{
+				if (item.DurationDays is <= 0)
+					throw new InvalidOperationException($"AI returned invalid duration for task {key}: {item.DurationDays}");
+				task.End = task.Start.AddDays(item.DurationDays.Value - 1);
+			}
+			else if (startWasChanged && !endWasChanged)
+			{
+				// Moving a task without changing duration preserves the original inclusive duration.
 				task.End = task.Start.AddDays(originalDuration);
+			}
+			else if (endWasChanged)
+			{
+				// Backward-compatible support for old AI plans. New prompts must use durationDays.
+				task.End = ParseDate(item.EndDate, $"task {key}.endDate");
+			}
 			if (item.Name is not null)
 				task.Name = item.Name;
 
