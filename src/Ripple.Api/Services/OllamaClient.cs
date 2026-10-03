@@ -125,7 +125,7 @@ USER REQUEST:
 CURRENT RIPPLE CONTEXT:
 {contextJson}
 
-Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
+Produce a proposed plan. For update_project, null fields mean 'leave unchanged'. If changing only an existing task's startDate, leave endDate null so Ripple preserves the existing task duration. If changing only endDate, leave startDate null unless the user explicitly requested a start-date change.
 """;
 
 		var request = new
@@ -161,6 +161,8 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 
 		if (result?.Message is null || string.IsNullOrWhiteSpace(result.Message.Content))
 			throw new InvalidOperationException("Ollama returned an empty plan.");
+
+		logger.LogInformation("Ollama returned AI plan JSON: {PlanJson}", result.Message.Content);
 
 		try
 		{

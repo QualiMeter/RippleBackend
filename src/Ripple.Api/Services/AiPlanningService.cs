@@ -15,8 +15,11 @@ public sealed class AiPlanningService(
 	ChangeHistoryService history,
 	DependencyGraphService graph,
 	AnalysisService analysis,
-	IRealtimeNotifier realtime)
+	IRealtimeNotifier realtime,
+	ILogger<AiPlanningService> logger)
 {
+	private const string BuildMarker = "ai-schedule-v3-2026-10-03";
+
 	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
 	{
 		PropertyNameCaseInsensitive = true
@@ -24,6 +27,7 @@ public sealed class AiPlanningService(
 
 	public async Task<AiPlanDto> CreatePlanAsync(Guid? projectId, string prompt, CancellationToken ct)
 	{
+		logger.LogInformation("AI planning build marker: {BuildMarker}", BuildMarker);
 		var userId = await currentUser.GetUserIdAsync(ct);
 		AiPlanContext context;
 
@@ -39,7 +43,11 @@ public sealed class AiPlanningService(
 
 		var document = await ollama.CreatePlanAsync(prompt, context, ct);
 		ValidateDocument(document, projectId);
+		logger.LogInformation("AI plan generated. Operation={Operation}, ProjectId={ProjectId}, Tasks={TaskCount}, Dependencies={DependencyCount}", document.Operation, projectId, document.Tasks.Count, document.Dependencies.Count);
+		logger.LogDebug("AI raw normalized-input plan: {PlanJson}", JsonSerializer.Serialize(document, JsonOptions));
 		await NormalizeAiScheduleAsync(document, projectId, context, ct);
+		logger.LogInformation("AI plan schedule normalized. Project={ProjectStart}->{ProjectEnd}, Tasks={TaskCount}, Dependencies={DependencyCount}", document.Project?.StartDate, document.Project?.EndDate, document.Tasks.Count, document.Dependencies.Count);
+		logger.LogDebug("AI normalized plan: {PlanJson}", JsonSerializer.Serialize(document, JsonOptions));
 		var contextHash = projectId.HasValue ? ComputeContextHash(context) : null;
 		var changes = await BuildPreviewChangesAsync(document, projectId, ct);
 
@@ -385,12 +393,20 @@ public sealed class AiPlanningService(
 				continue;
 			}
 
-			if (item.StartDate is not null)
+			var startWasChanged = item.StartDate is not null;
+			var endWasChanged = item.EndDate is not null;
+			var originalDuration = task.End.DayNumber - task.Start.DayNumber;
+			if (startWasChanged)
 				task.Start = ParseDate(item.StartDate, $"task {key}.startDate");
-			if (item.EndDate is not null)
+			if (endWasChanged)
 				task.End = ParseDate(item.EndDate, $"task {key}.endDate");
+			if (startWasChanged && !endWasChanged)
+				task.End = task.Start.AddDays(originalDuration);
 			if (item.Name is not null)
 				task.Name = item.Name;
+
+			if (task.Start > task.End)
+				throw new InvalidOperationException($"AI plan has invalid dates for task '{task.Name}': {task.Start:yyyy-MM-dd} -> {task.End:yyyy-MM-dd}.");
 		}
 
 		var deletedIds = document.Tasks
@@ -400,33 +416,26 @@ public sealed class AiPlanningService(
 		foreach (var id in deletedIds)
 			tasks.Remove(id);
 
-		if (projectId.HasValue)
+		foreach (var item in document.Dependencies.Where(x => string.Equals(x.Action, "delete", StringComparison.OrdinalIgnoreCase)))
 		{
-			foreach (var raw in context.Dependencies)
-			{
-				var json = JsonSerializer.Serialize(raw, JsonOptions);
-				using var node = JsonDocument.Parse(json);
-				var root = node.RootElement;
-				var pair = (root.GetProperty("predecessorTaskId").GetGuid().ToString(), root.GetProperty("successorTaskId").GetGuid().ToString());
-				dependencies.Add(pair);
-			}
-
-			foreach (var item in document.Dependencies.Where(x => string.Equals(x.Action, "delete", StringComparison.OrdinalIgnoreCase)))
-			{
-				var pred = item.PredecessorTaskId?.ToString() ?? item.PredecessorTempId;
-				var succ = item.SuccessorTaskId?.ToString() ?? item.SuccessorTempId;
-				if (pred is not null && succ is not null)
-					dependencies.RemoveAll(x => string.Equals(x.Predecessor, pred, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Successor, succ, StringComparison.OrdinalIgnoreCase));
-			}
+			var pred = item.PredecessorTaskId?.ToString() ?? item.PredecessorTempId;
+			var succ = item.SuccessorTaskId?.ToString() ?? item.SuccessorTempId;
+			if (pred is not null && succ is not null)
+				dependencies.RemoveAll(x => string.Equals(x.Predecessor, pred, StringComparison.OrdinalIgnoreCase) && string.Equals(x.Successor, succ, StringComparison.OrdinalIgnoreCase));
 		}
 
 		foreach (var item in document.Dependencies.Where(x => string.Equals(x.Action, "create", StringComparison.OrdinalIgnoreCase)))
 		{
 			var pred = item.PredecessorTaskId?.ToString() ?? item.PredecessorTempId;
 			var succ = item.SuccessorTaskId?.ToString() ?? item.SuccessorTempId;
-			if (!string.IsNullOrWhiteSpace(pred) && !string.IsNullOrWhiteSpace(succ) && !dependencies.Any(x => x.Predecessor.Equals(pred, StringComparison.OrdinalIgnoreCase) && x.Successor.Equals(succ, StringComparison.OrdinalIgnoreCase)))
+			if (!string.IsNullOrWhiteSpace(pred) && !string.IsNullOrWhiteSpace(succ))
 				dependencies.Add((pred!, succ!));
 		}
+
+		dependencies = dependencies
+			.Where(x => tasks.ContainsKey(x.Predecessor) && tasks.ContainsKey(x.Successor))
+			.Distinct()
+			.ToList();
 
 		if (tasks.Count == 0)
 		{
@@ -443,10 +452,10 @@ public sealed class AiPlanningService(
 
 		var adjacency = tasks.Keys.ToDictionary(x => x, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
 		var indegree = tasks.Keys.ToDictionary(x => x, _ => 0, StringComparer.OrdinalIgnoreCase);
-		foreach (var (pred, succ) in dependencies.Distinct())
+		foreach (var (pred, succ) in dependencies)
 		{
-			if (!tasks.ContainsKey(pred) || !tasks.ContainsKey(succ) || pred.Equals(succ, StringComparison.OrdinalIgnoreCase))
-				continue;
+			if (pred.Equals(succ, StringComparison.OrdinalIgnoreCase))
+				throw new InvalidOperationException($"AI plan contains a self dependency for task {pred}.");
 			adjacency[pred].Add(succ);
 			indegree[succ]++;
 		}
@@ -477,9 +486,8 @@ public sealed class AiPlanningService(
 		}
 		else
 		{
-			var dates = tasks.Values.ToList();
-			projectStart = dates.Min(x => x.Start);
-			projectEnd = dates.Max(x => x.End);
+			projectStart = tasks.Values.Min(x => x.Start);
+			projectEnd = tasks.Values.Max(x => x.End);
 			if (document.Project?.StartDate is not null) projectStart = ParseDate(document.Project.StartDate, "project.startDate");
 			if (document.Project?.EndDate is not null) projectEnd = ParseDate(document.Project.EndDate, "project.endDate");
 		}
@@ -487,26 +495,31 @@ public sealed class AiPlanningService(
 		if (projectStart > projectEnd)
 			throw new InvalidOperationException("AI plan has invalid project dates.");
 
+		// Project boundaries are constraints for the initial schedule, not a reason to reject a valid dependency chain.
+		// The final project end is recalculated from the resulting task schedule below.
 		foreach (var key in ordered)
 		{
 			var task = tasks[key];
 			if (task.Start < projectStart)
 			{
 				var delta = projectStart.DayNumber - task.Start.DayNumber;
-				task.Start = projectStart;
-				task.End = task.End.AddDays(delta);
+				ShiftTask(task, delta);
+				logger.LogInformation("AI schedule shift: task={TaskId} name={TaskName} reason=project_start deltaDays={Delta} newRange={Start}->{End}", task.Reference, task.Name, delta, task.Start, task.End);
 			}
 
 			foreach (var predecessor in dependencies.Where(x => x.Successor.Equals(key, StringComparison.OrdinalIgnoreCase)))
 			{
-				if (!tasks.TryGetValue(predecessor.Predecessor, out var parent))
-					continue;
+				var parent = tasks[predecessor.Predecessor];
 				var required = DependencyScheduleRules.RequiredSuccessorStart(parent.End);
 				if (task.Start < required)
 				{
 					var delta = required.DayNumber - task.Start.DayNumber;
-					task.Start = required;
-					task.End = task.End.AddDays(delta);
+					var oldStart = task.Start;
+					var oldEnd = task.End;
+					ShiftTask(task, delta);
+					logger.LogInformation(
+						"AI dependency shift: predecessor={PredecessorId} predecessorEnd={PredecessorEnd} successor={SuccessorId} successor={SuccessorName} oldRange={OldStart}->{OldEnd} requiredStart={RequiredStart} newRange={NewStart}->{NewEnd}",
+						parent.Reference, parent.End, task.Reference, task.Name, oldStart, oldEnd, required, task.Start, task.End);
 				}
 			}
 
@@ -514,21 +527,77 @@ public sealed class AiPlanningService(
 				projectEnd = task.End;
 		}
 
+		// Recalculate the project boundary from the final schedule. This is especially important when a
+		// dependency pushes an existing successor beyond the original project end.
+		var maxTaskEnd = tasks.Values.Max(x => x.End);
+		if (maxTaskEnd > projectEnd)
+			projectEnd = maxTaskEnd;
+
+		if (projectStart > projectEnd)
+			throw new InvalidOperationException($"AI schedule produced invalid project boundaries: {projectStart:yyyy-MM-dd} -> {projectEnd:yyyy-MM-dd}.");
+
 		if (document.Project is null)
 			document.Project = new AiProjectChange();
 		document.Project.StartDate = projectStart.ToString("yyyy-MM-dd");
 		document.Project.EndDate = projectEnd.ToString("yyyy-MM-dd");
 
-		foreach (var item in document.Tasks)
+		// Materialize every schedule change into the AI plan. This fixes the important case where
+		// an existing task was not mentioned by Ollama but must move because another task changed.
+		foreach (var task in tasks.Values)
 		{
-			var key = item.Id?.ToString() ?? item.TempId;
-			if (key is null || !tasks.TryGetValue(key, out var task))
+			var existingItem = document.Tasks.FirstOrDefault(x =>
+				(x.Id.HasValue && x.Id.Value.ToString().Equals(task.Key, StringComparison.OrdinalIgnoreCase)) ||
+				(!string.IsNullOrWhiteSpace(x.TempId) && x.TempId.Equals(task.Key, StringComparison.OrdinalIgnoreCase)));
+
+			if (existingItem is null)
+			{
+				if (!task.IsNew)
+				{
+					document.Tasks.Add(new AiTaskChange
+					{
+						Action = "update",
+						Id = Guid.Parse(task.Key),
+						Name = task.Name,
+						StartDate = task.Start.ToString("yyyy-MM-dd"),
+						EndDate = task.End.ToString("yyyy-MM-dd")
+					});
+				}
 				continue;
-			if (!string.Equals(item.Action, "create", StringComparison.OrdinalIgnoreCase) && !string.Equals(item.Action, "update", StringComparison.OrdinalIgnoreCase))
+			}
+
+			if (!string.Equals(existingItem.Action, "create", StringComparison.OrdinalIgnoreCase) &&
+				!string.Equals(existingItem.Action, "update", StringComparison.OrdinalIgnoreCase))
 				continue;
-			item.StartDate = task.Start.ToString("yyyy-MM-dd");
-			item.EndDate = task.End.ToString("yyyy-MM-dd");
+
+			existingItem.StartDate = task.Start.ToString("yyyy-MM-dd");
+			existingItem.EndDate = task.End.ToString("yyyy-MM-dd");
 		}
+
+		foreach (var (pred, succ) in dependencies)
+		{
+			var predecessor = tasks[pred];
+			var successor = tasks[succ];
+			if (DependencyScheduleRules.HasDateConflict(predecessor.End, successor.Start))
+				throw new InvalidOperationException($"AI scheduler failed to normalize dependency: {predecessor.Name} ({predecessor.End:yyyy-MM-dd}) -> {successor.Name} ({successor.Start:yyyy-MM-dd}).");
+		}
+
+		foreach (var task in tasks.Values)
+		{
+			if (task.Start < projectStart || task.End > projectEnd)
+				throw new InvalidOperationException($"AI scheduler produced task outside project boundaries: '{task.Name}' {task.Start:yyyy-MM-dd}->{task.End:yyyy-MM-dd}, project {projectStart:yyyy-MM-dd}->{projectEnd:yyyy-MM-dd}.");
+		}
+
+		logger.LogInformation("AI final schedule: project={ProjectStart}->{ProjectEnd}", projectStart, projectEnd);
+		foreach (var task in tasks.Values.OrderBy(x => x.Start).ThenBy(x => x.End).ThenBy(x => x.Name))
+			logger.LogInformation("AI final task schedule: task={TaskId} name={TaskName} range={Start}->{End}", task.Reference, task.Name, task.Start, task.End);
+	}
+
+	private static void ShiftTask(ScheduleTask task, int deltaDays)
+	{
+		if (deltaDays <= 0)
+			return;
+		task.Start = task.Start.AddDays(deltaDays);
+		task.End = task.End.AddDays(deltaDays);
 	}
 
 	private sealed class ScheduleTask(string key, string name, DateOnly start, DateOnly end, bool isNew, string reference)

@@ -48,10 +48,20 @@ jobs:
           ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
             "sudo systemctl stop ripple-api"
 
+      - name: Verify service deployment directory
+        run: |
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            'test "$(sudo systemctl show ripple-api -p WorkingDirectory --value)" = "/var/www/ripple/backend"'
+
       - name: Deploy
         run: |
           tar -C publish -cf - . | ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
-            "rm -rf /var/www/api/* && tar -C /var/www/api -xf -"
+            "mkdir -p /var/www/ripple/backend && rm -rf /var/www/ripple/backend/* && tar -C /var/www/ripple/backend -xf -"
+
+      - name: Verify deployed build
+        run: |
+          ssh "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "grep -a -F 'ai-schedule-v3-2026-10-03' /var/www/ripple/backend/Ripple.Api.dll >/dev/null"
 
       - name: Start backend
         if: always()
