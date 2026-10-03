@@ -223,7 +223,7 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 		{
 			document.Project = new AiProjectChange
 			{
-				Id = ParseGuid(raw.Project.Id, "project.id", allowInvalidForCreate: raw.Operation.Equals("create_project", StringComparison.OrdinalIgnoreCase)),
+				Id = ParseGuid(raw.Project.Id, "project.id", allowInvalidForCreate: string.Equals(raw.Operation, "create_project", StringComparison.OrdinalIgnoreCase)),
 				TempId = NullIfWhiteSpace(raw.Project.TempId),
 				Name = NullIfWhiteSpace(raw.Project.Name),
 				StartDate = NormalizeDate(raw.Project.StartDate, "project.startDate"),
@@ -233,10 +233,11 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 
 		foreach (var item in raw.Employees)
 		{
+			var action = item.Action?.Trim() ?? "create";
 			document.Employees.Add(new AiEmployeeChange
 			{
-				Action = item.Action?.Trim() ?? "create",
-				Id = ParseGuid(item.Id, "employee.id", allowInvalidForCreate: item.Action.Equals("create", StringComparison.OrdinalIgnoreCase)),
+				Action = action,
+				Id = ParseGuid(item.Id, "employee.id", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
 				TempId = NullIfWhiteSpace(item.TempId),
 				Name = NullIfWhiteSpace(item.Name),
 				Phone = NullIfWhiteSpace(item.Phone),
@@ -246,27 +247,29 @@ Produce a proposed plan. For update_project, null fields mean 'leave unchanged'.
 
 		foreach (var item in raw.Tasks)
 		{
+			var action = item.Action?.Trim() ?? "create";
 			document.Tasks.Add(new AiTaskChange
 			{
-				Action = item.Action?.Trim() ?? "create",
-				Id = ParseGuid(item.Id, "task.id", allowInvalidForCreate: item.Action.Equals("create", StringComparison.OrdinalIgnoreCase)),
+				Action = action,
+				Id = ParseGuid(item.Id, "task.id", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
 				TempId = NullIfWhiteSpace(item.TempId),
 				Name = NullIfWhiteSpace(item.Name),
 				StartDate = NormalizeDate(item.StartDate, "task.startDate"),
 				EndDate = NormalizeDate(item.EndDate, "task.endDate"),
 				Status = NullIfWhiteSpace(item.Status),
-				AssigneeId = ParseGuid(item.AssigneeId, "task.assigneeId", allowInvalidForCreate: item.Action.Equals("create", StringComparison.OrdinalIgnoreCase)),
+				AssigneeId = ParseGuid(item.AssigneeId, "task.assigneeId", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
 				AssigneeTempId = NullIfWhiteSpace(item.AssigneeTempId)
 			});
 		}
 
 		foreach (var item in raw.Dependencies)
 		{
+			var action = item.Action?.Trim() ?? "create";
 			document.Dependencies.Add(new AiDependencyChange
 			{
-				Action = item.Action?.Trim() ?? "create",
-				PredecessorTaskId = ParseGuid(item.PredecessorTaskId, "dependency.predecessorTaskId", allowInvalidForCreate: item.Action.Equals("create", StringComparison.OrdinalIgnoreCase)),
-				SuccessorTaskId = ParseGuid(item.SuccessorTaskId, "dependency.successorTaskId", allowInvalidForCreate: item.Action.Equals("create", StringComparison.OrdinalIgnoreCase)),
+				Action = action,
+				PredecessorTaskId = ParseGuid(item.PredecessorTaskId, "dependency.predecessorTaskId", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
+				SuccessorTaskId = ParseGuid(item.SuccessorTaskId, "dependency.successorTaskId", allowInvalidForCreate: string.Equals(action, "create", StringComparison.OrdinalIgnoreCase)),
 				PredecessorTempId = NullIfWhiteSpace(item.PredecessorTempId),
 				SuccessorTempId = NullIfWhiteSpace(item.SuccessorTempId)
 			});

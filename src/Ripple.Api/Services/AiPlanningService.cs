@@ -519,7 +519,7 @@ public sealed class AiPlanningService(
 			foreach (var item in document.Tasks.Where(x => x.Action.Equals("create", StringComparison.OrdinalIgnoreCase)))
 			{
 				var dates = createdTaskDates[item.TempId!];
-				if (dates.Start < projectStart || dates.End > projectEnd) throw new InvalidOperationException($"Task '{item.Name}' is outside project boundaries.");
+				if (dates.StartDate < projectStart || dates.EndDate > projectEnd) throw new InvalidOperationException($"Task '{item.Name}' is outside project boundaries.");
 			}
 		}
 
@@ -548,7 +548,7 @@ public sealed class AiPlanningService(
 			var projectEnd = document.Project?.EndDate is null ? project.EndDate : ParseDate(document.Project.EndDate, "project.endDate");
 			foreach (var task in effectiveTaskDates.Values)
 			{
-				if (task.Start < projectStart || task.End > projectEnd) throw new InvalidOperationException("AI plan contains a task outside project boundaries.");
+				if (task.StartDate < projectStart || task.EndDate > projectEnd) throw new InvalidOperationException("AI plan contains a task outside project boundaries.");
 			}
 		}
 
@@ -587,8 +587,8 @@ public sealed class AiPlanningService(
 		foreach (var dependency in resultingDependencies)
 		{
 			if (!effectiveTaskDates.TryGetValue(dependency.PredecessorTaskId, out var predecessorDates) || !effectiveTaskDates.TryGetValue(dependency.SuccessorTaskId, out var successorDates)) continue;
-			if (successorDates.Start <= predecessorDates.End)
-				throw new InvalidOperationException($"AI plan violates dependency schedule: successor {dependency.SuccessorTaskId} must start after predecessor {dependency.PredecessorTaskId} ends ({predecessorDates.End:yyyy-MM-dd}).");
+			if (successorDates.StartDate <= predecessorDates.EndDate)
+				throw new InvalidOperationException($"AI plan violates dependency schedule: successor {dependency.SuccessorTaskId} must start after predecessor {dependency.PredecessorTaskId} ends ({predecessorDates.EndDate:yyyy-MM-dd}).");
 		}
 
 	}
